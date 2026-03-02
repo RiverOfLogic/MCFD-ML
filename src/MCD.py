@@ -304,12 +304,12 @@ if __name__ == "__main__":
 
     # DataLoader（训练集shuffle=True）
     src_loader = DataLoader(
-        source_ds, batch_size=config.MCD_batch_size, shuffle=True,  # 🔥 改为True
-        num_workers=8, pin_memory=False, drop_last=True  # 🔥 改为0和False，避免多进程错误
+        source_ds, batch_size=config.MCD_batch_size, shuffle=True,
+        num_workers=8, pin_memory=False, drop_last=True 
     )
 
     tgt_loader = DataLoader(
-        target_ds, batch_size=config.MCD_batch_size, shuffle=True,  # 🔥 改为True
+        target_ds, batch_size=config.MCD_batch_size, shuffle=True, 
         num_workers=8, pin_memory=False, drop_last=True
     )
 
