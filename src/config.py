@@ -5,7 +5,7 @@ DIRG_DATA_DIR = ROOT_DIR / "data" / "DIRG"
 LOGS_DIR = ROOT_DIR / "logs"
 MODELS_DIR = ROOT_DIR / "models"
 
-TASK = 2
+TASK = 4
 device = "cuda"
 
 #DIRG任务划分
