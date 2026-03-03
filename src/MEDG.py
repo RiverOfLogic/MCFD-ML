@@ -228,7 +228,6 @@ def train(
             # 计算 Alpha (对抗系数)
             p = (step + (epoch-1)*steps_per_epoch) / (epochs * steps_per_epoch)
             alpha = 2. / (1. + math.exp(-10 * p)) - 1
-            '''
             # ===== 1. 构建元学习任务 (Meta-Task Construction) =====
             # 按域划分源域数据
             unique_domains = torch.unique(did_s).tolist()
@@ -269,14 +268,11 @@ def train(
                     fast_params[name] = p
              # ===== 3. 元学习外环 (Outer Loop) =====
             loss_outer = meta_fwd_cls(fast_params, model, x_te, y_te, alpha)
-            '''
 
             # ===== 4. 计算其他损失并总合 =====
             # 前向计算
             y_logits, d_s_logits,dom_s, m_s,z_s,d_s,rec_s = model(x_s, alpha=alpha)
             _, d_t_logits,dom_t, m_t,z_t,d_t,rec_t = model(x_t, alpha=alpha)
-
-            loss_normal = F.cross_entropy(y_logits, y_s)
 
             # 1. 域对抗损失 (多域辨别)
             loss_dom = 0.5 * (F.cross_entropy(d_s_logits, did_s) + F.cross_entropy(d_t_logits, did_t))
@@ -293,7 +289,7 @@ def train(
 
             # 总损失
             #total_loss = loss_inner + weight_outer*loss_outer + weight_domain * loss_dom + weight_coral * loss_coral + weight_domainacc * dom_loss + weight_HSIC*orth_loss+weight_rec*rec_loss
-            total_loss = loss_normal + weight_domain * loss_dom + weight_coral * loss_coral + weight_domainacc * dom_loss + weight_HSIC*orth_loss+weight_rec*rec_loss
+            total_loss = loss_inner + weight_outer*loss_outer + weight_domain * loss_dom + weight_coral * loss_coral + weight_domainacc * dom_loss + weight_HSIC*orth_loss+weight_rec*rec_loss
 
 
             optimizer.zero_grad()
@@ -321,7 +317,7 @@ def train(
         'best_acc': best_acc,
         'global_map': global_map,  # 非常重要：确保推理时的 Domain ID 一致
         }
-            save_path = f"{save_name}.pt"
+            save_path = config.MODELS_DIR / f"{save_name}_{args.seed}.pt"
             torch.save(state, save_path)
             print(f" >>> Best model with Tgt_Acc: {best_acc*100:.2f}%")
 
@@ -472,9 +468,9 @@ if __name__ == "__main__":
     test_info = config.DIRG_DATA_DIR / "test_info.npy"
 
     # source 训练域（有标签）
-    filter_domains_src = config.DIRG_task4_src
+    filter_domains_src = config.DIRG_task_src
     # target 训练域（无标签）
-    filter_domains_tgt = config.DIRG_task4_tgt
+    filter_domains_tgt = config.DIRG_task_tgt
     # datasets
     source_ds = NormalDataset(
         x_path=train_x, y_path=train_y, info_path=train_info,

@@ -35,7 +35,7 @@ num_classes=7
 epochs = 100
 weight_outer = 0.3
 weight_coral=0.3
-weight_adv = 0.7
+weight_adv = 1
 weight_domainacc = 0.3
 weight_HSIC = 0.1
 weight_rec = 0.1
@@ -68,7 +68,7 @@ CDAN_epochs = 100
 CDAN_lr = 0.0005
 CDAN_batch_size = 64
 CDAN_entropy = True
-CDAN_trade_off = 1.0
+CDAN_trade_off = 1.5
 
 
 #域分析

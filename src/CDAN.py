@@ -1,16 +1,74 @@
 import config
 from datetime import datetime
 from torch.utils.data import DataLoader
-from MEDGNet import FeatureEncoder, StrongDiscriminator
+from MEDGNet import FeatureEncoder
 from torch import nn
 import torch
-from tllib.alignment.cdan import ConditionalDomainAdversarialLoss
-from MyNewDataset import NormalDataset, TargetDataset, build_global_domain_map
+from MyNewDataset import NormalDataset, TargetDataset
+from MEDG import build_global_domain_map
 import argparse
 import random
 import numpy as np
 from sklearn.metrics import f1_score
 import torch.nn.functional as F
+
+# --- 手动实现 CDAN 核心组件 (替代 tllib) ---
+class GradReverse(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, lambd):
+        ctx.lambd = lambd
+        return x.clone()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output * (-ctx.lambd), None
+
+def grad_reverse(x, lambd=1.0):
+    return GradReverse.apply(x, lambd)
+
+class ConditionalDomainAdversarialLoss(nn.Module):
+    def __init__(self, domain_discriminator, entropy_conditioning=False):
+        super().__init__()
+        self.domain_discriminator = domain_discriminator
+        self.entropy_conditioning = entropy_conditioning
+
+    def forward(self, y_s, f_s, y_t, f_t):
+        softmax = nn.Softmax(dim=1)
+        g_s = softmax(y_s)
+        g_t = softmax(y_t)
+
+        # Multilinear Map: f * g
+        multilinear_s = torch.bmm(f_s.unsqueeze(2), g_s.unsqueeze(1)).view(f_s.size(0), -1)
+        multilinear_t = torch.bmm(f_t.unsqueeze(2), g_t.unsqueeze(1)).view(f_t.size(0), -1)
+
+        input_disc = torch.cat((multilinear_s, multilinear_t), dim=0)
+        
+        batch_size = y_s.size(0)
+        domain_label = torch.zeros(batch_size * 2).to(y_s.device)
+        domain_label[batch_size:] = 1
+        
+        # Entropy Conditioning (Optional)
+        if self.entropy_conditioning:
+            entropy_s = -torch.sum(g_s * torch.log(g_s + 1e-5), dim=1)
+            entropy_t = -torch.sum(g_t * torch.log(g_t + 1e-5), dim=1)
+            weight_s = 1.0 + torch.exp(-entropy_s)
+            weight_t = 1.0 + torch.exp(-entropy_t)
+            weight = torch.cat([weight_s, weight_t], dim=0)
+            weight = weight / torch.mean(weight)
+        else:
+            weight = None
+
+        reverse_input = grad_reverse(input_disc, lambd=1.0)
+        domain_pred = self.domain_discriminator(reverse_input)
+        
+        if domain_pred.size(1) == 1:
+            loss = F.binary_cross_entropy_with_logits(domain_pred.squeeze(), domain_label, weight=weight)
+        else:
+            loss = F.cross_entropy(domain_pred, domain_label.long(), reduction='none')
+            if weight is not None: loss = (loss * weight).mean()
+            else: loss = loss.mean()
+
+        return loss
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--seed', type=int, default=None, help='随机种子')
@@ -26,6 +84,37 @@ if args.seed is not None:
 
 def log_msg(msg):
     log_messages.append(msg)
+
+class Discriminator(nn.Module):
+    def __init__(self, input_dim: int, num_domains: int):
+        """
+        CDAN 判别器
+        input_dim: feature_dim * num_classes
+        num_domains: 域的数量 (如果是二分类则通常为 1 或 2)
+        """
+        super(Discriminator, self).__init__()
+        # 定义隐藏层维度
+        hidden_dim = 1024
+        
+        self.net = nn.Sequential(
+            # 第一层：高维映射
+            nn.Linear(input_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            
+            # 第二层：深度特征提取
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            
+            # 输出层
+            nn.Linear(hidden_dim, num_domains)
+        )
+
+    def forward(self, x):
+        return self.net(x)
 
 class LabelClassifier(nn.Module):
     def __init__(self, feat_dim: int, num_classes: int):
@@ -48,21 +137,21 @@ class CDAN_solver():
         self.classifier = LabelClassifier(feature_dim, num_classes).to(self.device)
         
         # 判别器输入维度 = 特征维度 * 类别数
-        self.domain_discriminator = StrongDiscriminator(feature_dim * num_classes, num_domains).to(self.device)
+        self.domain_discriminator = Discriminator(feature_dim * num_classes, num_domains).to(self.device)
         
         self.domain_adv = ConditionalDomainAdversarialLoss(
             self.domain_discriminator, 
-            entropy_conditioning=config.get('CDAN_entropy', False) 
+            entropy_conditioning=config.CDAN_entropy
         ).to(self.device)
 
         self.optimizer = torch.optim.Adam(
             list(self.feature_extractor.parameters()) + 
             list(self.classifier.parameters()) + 
-            list(self.domain_adv.parameters()), 
+            list(self.domain_discriminator.parameters()), 
             lr=config.CDAN_lr
         )
         
-        self.trade_off = config.get('CDAN_trade_off', 1.0)
+        self.trade_off = config.CDAN_trade_off
 
     def train(self, epochs, source_loader, target_loader, val_loader):
         best_val_acc = 0.0
@@ -214,7 +303,7 @@ if __name__ == "__main__":
     num_classes = config.CDAN_num_classes
 
     log_msg("=" * 80)
-    log_msg(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, 任务: {config.TASK}, seed: {args.seed}")
+    log_msg(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, 任务: {config.TASK}, seed: {args.seed}, weight_domain: {config.CDAN_trade_off}")
     log_msg("-" * 80)
     batch_size = config.CDAN_batch_size
     log_msg(f"参数: num_classes={num_classes}, batch_size={batch_size}, lr={config.CDAN_lr}, epochs={config.CDAN_epochs}")
