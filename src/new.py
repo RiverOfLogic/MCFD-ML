@@ -9,7 +9,19 @@ from MEDG import plot_tsne
 import config
 from datetime import datetime
 import random
+import numpy as np
+
 import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--seed', type=int, default=None, help='随机种子')
+args = parser.parse_args()
+
+if args.seed is not None:
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    random.seed(args.seed)
+    print(f"Random seed set to: {args.seed}")
 
 def log_msg(msg):
     log_messages.append(msg)
@@ -35,7 +47,7 @@ def collect_z_d_y(model, loader, device="cuda"):
     DOM = torch.cat(DOM_list,dim=0)
     return Z, D, Y,DOM
 
-def fit_proj_W(D, Z, ridge=1e-3):
+def fit_proj_W(D, Z, ridge=1e-1):
     # D: [N, q], Z: [N, p]  (torch on CPU)
     Dm = D - D.mean(0, keepdim=True)
     Zm = Z - Z.mean(0, keepdim=True)
@@ -88,8 +100,8 @@ if __name__ == "__main__":
     device = "cuda"
 
     log_msg("=" * 80)
-    log_msg(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, 模型地址: {pretrained_model_path}, 任务: {config.TASK},seed: {args.seed}")
-    log_msg("=" * 80)
+    log_msg(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, 模型地址: {pretrained_model_path}, 任务: {config.TASK}")
+    log_msg("-" * 80)
 
     # 验证集参数
     valid_x = config.DIRG_DATA_DIR / "val_x.npy"
@@ -102,7 +114,7 @@ if __name__ == "__main__":
     src_domains = config.DIRG_task_src
     tgt_domains = config.DIRG_task_tgt
 
-    val_ds = NormalDataset(x_path=val_x, y_path=val_y, info_path=val_info,
+    val_ds = NormalDataset(x_path=valid_x, y_path=valid_y, info_path=valid_info,
                            transform=None, filter_domains=tgt_domains,  mmap_mode="r")
     test_ds = NormalDataset(x_path=test_x, y_path=test_y, info_path=test_info,
                            transform=None, filter_domains=tgt_domains,  mmap_mode="r")
@@ -123,27 +135,31 @@ if __name__ == "__main__":
     Zv, Dv, Yv,DOMv = collect_z_d_y(model, val_loader, device)
     Zt, Dt, Yt,DOMt = collect_z_d_y(model, test_loader, device)
 
-    W, Zm, Dm = fit_proj_W(Zv, Dv, ridge=0.01)
+    W, Zm, Dm = fit_proj_W(Zv, Dv, ridge=0.1)
     Dv_clean, _ = make_z_clean(Zv, Dv, W, Zm, Dm)
     Dt_clean, _ = make_z_clean(Zt, Dt, W, Zm, Dm)
 
-    acc_D  = train_linear_probe(Dv, DOMv, Dt, DOMt, num_classes=8)
-    acc_Dc = train_linear_probe(Dv_clean, DOMv, Dt, DOMt, num_classes=8)
+    acc_D  = train_linear_probe(Dv, DOMv, Dt, DOMt, num_classes=4)
+    acc_Dc = train_linear_probe(Dv_clean, DOMv, Dt_clean, DOMt, num_classes=4)
 
 
-    W, Dm, Zm = fit_proj_W(Dv, Zv, ridge=0.01)
+    W, Dm, Zm = fit_proj_W(Dv, Zv, ridge=0.1)
 
     Zv_clean, _ = make_z_clean(Dv, Zv, W, Dm, Zm)
     Zt_clean, _ = make_z_clean(Dt, Zt, W, Dm, Zm)
 
     acc_Z  = train_linear_probe(Zv, Yv, Zt, Yt, num_classes=7)
-    acc_Zc = train_linear_probe(Zv_clean, Yv, Zt, Yt, num_classes=7)
+    acc_Zc = train_linear_probe(Zv_clean, Yv, Zt_clean, Yt, num_classes=7)
 
 
-    Z_enhanced = 0.9 * Zt_clean + 0.1 * Dt_clean
+    Z_enhanced = 0.5 * Zt_clean + 0.5 * Dt_clean
     Zv_clean_concat = torch.cat([Zv_clean, Dv_clean], dim=1)
     Zt_clean_concat = torch.cat([Zt_clean, Dt_clean], dim=1) 
     acc_fin = train_linear_probe(Zv_clean_concat, Yv, Zt_clean_concat, Yt, num_classes=7)
+
+    Zv_concat = torch.cat([Zv, Dv], dim=1)
+    Zt_concat = torch.cat([Zt, Dt], dim=1) 
+    acc_fin_0 = train_linear_probe(Zv_concat, Yv, Zt_concat, Yt, num_classes=7)
     #plot_tsne(Zv_clean, Dv_clean, Yv,DOMv, save_path="tsne_output.pdf")
 
     log_msg(f"线性探针分类准确率:")
@@ -152,8 +168,9 @@ if __name__ == "__main__":
     log_msg(f"  原始 Z: {acc_Z:.4f}")
     log_msg(f"  去掉 D 线性可解释部分后的 Z_clean: {acc_Zc:.4f}")
     log_msg(f"  Z_clean + D_clean 线性拼接: {acc_fin:.4f}")
+    log_msg(f"  原始 Z + D 线性拼接: {acc_fin_0:.4f}")
 
-    log_mesg("=" * 80)
+    log_msg("=" * 80)
     with open(config.LOGS_DIR / 'Domains.log', 'a') as f:
         f.write('\n'.join(log_messages) + '\n') 
 
@@ -162,6 +179,7 @@ if __name__ == "__main__":
     print(acc_Z)
     print(acc_Zc)
     print(acc_fin)
+    print(acc_fin_0)
 
 
 

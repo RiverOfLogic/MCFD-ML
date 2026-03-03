@@ -5,7 +5,7 @@ DIRG_DATA_DIR = ROOT_DIR / "data" / "DIRG"
 LOGS_DIR = ROOT_DIR / "logs"
 MODELS_DIR = ROOT_DIR / "models"
 
-TASK = 4
+TASK = 2
 device = "cuda"
 
 #DIRG任务划分
@@ -35,10 +35,10 @@ num_classes=7
 epochs = 100
 weight_outer = 0.3
 weight_coral=0.3
-weight_adv = 1
-weight_domainacc = 0.3
+weight_adv = 0.8
+weight_domainacc = 0.2
 weight_HSIC = 0.1
-weight_rec = 0.1
+weight_rec = 0.2
 batch_size = 128
 lr = 0.0005
 
@@ -72,5 +72,5 @@ CDAN_trade_off = 1.5
 
 
 #域分析
-pretrained_model_path = MODELS_DIR / "besttask4_99,36.pt"
+pretrained_model_path = MODELS_DIR / "task2_43_99.35.pt"
 Domain_num_classes = 7

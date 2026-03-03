@@ -403,7 +403,7 @@ def eval_cls(model,loader, device):
         loss_sum += loss.item() * y.size(0)
     return loss_sum/total, correct/total, correct_dom/total_dom
 
-def test(model,target_ds, batch_size=64, device='cuda', save_path='test_results.pdf'):
+def test(model,target_ds, batch_size=64, device='cuda', save_path=f'test_results_{args.seed}.pdf'):
     target_loader = DataLoader(target_ds, batch_size=batch_size, shuffle=False)
     loss, acc, dom_acc, all_z, all_d, all_labels,all_domain_labels,macro_f1,weighted_f1 = eval_cls1(model, target_loader, device)
     log_msg(f"训练完成 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
