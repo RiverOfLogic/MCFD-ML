@@ -1,7 +1,6 @@
 # 数据和模型文件（太大，不放GitHub）
 *.npy
 *.npz
-*.pt
 *.pth
 *.ckpt
 
