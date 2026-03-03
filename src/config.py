@@ -39,6 +39,8 @@ weight_adv = 0.7
 weight_domainacc = 0.3
 weight_HSIC = 0.1
 weight_rec = 0.1
+batch_size = 128
+lr = 0.0005
 
 #DANN0权重
 DANN0_num_classes = 7
@@ -59,6 +61,15 @@ MCD_num_classes = 7
 MCD_epochs = 100
 MCD_batch_size = 64
 MCD_lr = 0.0005
+
+#CDAN权重
+CDAN_num_classes = 7
+CDAN_epochs = 100
+CDAN_lr = 0.0005
+CDAN_batch_size = 64
+CDAN_entropy = True
+CDAN_trade_off = 1.0
+
 
 #域分析
 pretrained_model_path = MODELS_DIR / "besttask4_99,36.pt"

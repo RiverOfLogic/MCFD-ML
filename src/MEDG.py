@@ -10,7 +10,8 @@ import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
-
+from datetime import datetime
+from sklearn.metrics import f1_score
 from typing import List, Tuple
 import math
 from MyNewDataset import NormalDataset, TargetDataset
@@ -30,6 +31,9 @@ if args.seed is not None:
     np.random.seed(args.seed)
     random.seed(args.seed)
     print(f"Random seed set to: {args.seed}")
+
+def log_msg(msg):
+    log_messages.append(msg)
 
 def named_params_dict(module):
     """获取模型所有参数的字典"""
@@ -183,10 +187,11 @@ def train(
     weight_HSIC = 0.5,
     weight_rec = 0.1,
     device: str = "cuda",
-    save_name: str = "task4"
+    save_name: str = "task4",
+    batch_size = 128
 ):
-    source_loader = DataLoader(source_ds, batch_size=128, shuffle=True, num_workers=4, drop_last=True)
-    target_loader = DataLoader(target_ds, batch_size=128, shuffle=True, num_workers=4, drop_last=True)
+    source_loader = DataLoader(source_ds, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
+    target_loader = DataLoader(target_ds, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
     val_loader = DataLoader(val_ds, batch_size=64, shuffle=False)
 
     num_domains = len(source_ds.domain_to_id)
@@ -195,11 +200,11 @@ def train(
     #print("FeatureExtractor parameters:", sum(p.numel() for p in model.F.parameters()))
 
     optimizer = torch.optim.Adam([
-        {"params": model.F.parameters(),  "lr": 0.0005},  # encoder 小一点
-        {"params": model.C.parameters(),  "lr": 0.0005},  # 故障头
-        {"params": model.DC.parameters(), "lr": 0.0005},  # 域特征头
-        {"params": model.D.parameters(),  "lr": 0.0005},  # 域判别器
-        {"params": model.R.parameters(),  "lr": 0.0005},  # 重构头
+        {"params": model.F.parameters(),  "lr": lr},  # encoder 小一点
+        {"params": model.C.parameters(),  "lr": lr},  # 故障头
+        {"params": model.DC.parameters(), "lr": lr},  # 域特征头
+        {"params": model.D.parameters(),  "lr": lr},  # 域判别器
+        {"params": model.R.parameters(),  "lr": lr},  # 重构头
     ], weight_decay=1e-4)
     criterion_coral = CoralLoss()
 
@@ -335,6 +340,8 @@ def eval_cls1(model, loader, device):
     total_dom, correct_dom = 0, 0
     loss_sum = 0
     all_z, all_d, all_labels,all_domains = [], [], [] ,[]# 用于存储 z 特征, d 特征和标签
+    all_preds = []
+    all_labels_fat = []
 
     for x, y, d in loader:
         x, y, d = x.to(device), y.to(device), d.to(device)
@@ -343,6 +350,8 @@ def eval_cls1(model, loader, device):
 
         # 计算分类准确率
         pred = logits.argmax(1)
+        all_preds.extend(pred.cpu().numpy())
+        all_labels_fat.extend(y.cpu().numpy())
         correct += (pred == y).sum().item()
 
         # 计算域分类准确率
@@ -364,8 +373,13 @@ def eval_cls1(model, loader, device):
     all_d = np.concatenate(all_d, axis=0)
     all_labels = np.concatenate(all_labels, axis=0)
     all_domains = np.concatenate(all_domains, axis=0)
+    if len(all_labels_fat) > 0:
+        macro_f1 = f1_score(all_labels_fat, all_preds, average='macro', zero_division=0)
+        weighted_f1 = f1_score(all_labels_fat, all_preds, average='weighted', zero_division=0)
+    else:
+        macro_f1 = weighted_f1 = 0.0
 
-    return loss_sum / total, correct / total, correct_dom / total_dom, all_z, all_d, all_labels,all_domains
+    return loss_sum / total, correct / total, correct_dom / total_dom, all_z, all_d, all_labels,all_domains,macro_f1,weighted_f1
 # ---------------------------
 # 评估函数
 # ---------------------------
@@ -395,7 +409,12 @@ def eval_cls(model,loader, device):
 
 def test(model,target_ds, batch_size=64, device='cuda', save_path='test_results.pdf'):
     target_loader = DataLoader(target_ds, batch_size=batch_size, shuffle=False)
-    loss, acc, dom_acc, all_z, all_d, all_labels,all_domain_labels = eval_cls1(model, target_loader, device)
+    loss, acc, dom_acc, all_z, all_d, all_labels,all_domain_labels,macro_f1,weighted_f1 = eval_cls1(model, target_loader, device)
+    log_msg(f"训练完成 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    log_msg(f"测试结果: 准确率={acc*100:.4f}% | Loss={loss:.4f} | Macro F1={macro_f1:.4f} | Weighted F1={weighted_f1:.4f}")
+    log_msg("=" * 30)
+    with open(config.LOGS_DIR / 'MEDG_training.log', 'a') as f:
+        f.write('\n'.join(log_messages) + '\n')
     # 输出结果
     print(f"Test Loss: {loss:.4f}, Target Domain Accuracy: {acc * 100:.2f}%")
     print(f"Domain Classification Accuracy: {dom_acc * 100:.2f}%")
@@ -437,6 +456,9 @@ def plot_tsne(z_features, d_features, labels,domain_labels, save_path="tsne_outp
 # Main (执行入口)
 # ---------------------------
 if __name__ == "__main__":
+
+    log_messages = []
+
     train_x = config.DIRG_DATA_DIR / "train_x.npy"
     train_y = config.DIRG_DATA_DIR / "train_y.npy"
     train_info = config.DIRG_DATA_DIR / "train_info.npy"
@@ -482,6 +504,12 @@ if __name__ == "__main__":
     val_ds.apply_global_map(global_map)
     test_ds.apply_global_map(global_map)
 
+        # 日志
+    log_msg("=" * 30)
+    log_msg(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, 任务: {config.TASK}, seed: {args.seed}")
+    log_msg("." * 30)
+    log_msg(f"参数: num_classes={config.num_classes}, batch_size={config.batch_size}, lr={config.lr}, epochs={config.epochs}")
+
     model = train(
         source_ds=source_ds, 
         target_ds=target_ds, 
@@ -494,6 +522,9 @@ if __name__ == "__main__":
         weight_outer = config.weight_outer,
         weight_HSIC = config.weight_HSIC,
         weight_rec = config.weight_rec,
-        save_name = "task4"         
+        save_name = "task4",
+        batch_size = config.batch_size,
+        lr=config.lr         
     )
     test(model,test_ds,64)
+
