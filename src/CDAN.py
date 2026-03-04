@@ -324,7 +324,7 @@ if __name__ == "__main__":
     )
 
     solver = CDAN_solver(
-        in_channels=6,
+        in_channels=config.channels,
         feature_dim=128,
         num_classes=num_classes,
         num_domains=len(global_map)

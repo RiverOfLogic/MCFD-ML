@@ -45,7 +45,7 @@ class MCD_solver(object):
     def __init__(self, in_channels: int, feat_dim: int, num_classes: int, num_k: int):
         super().__init__()
         self.device = config.device
-        self.F = FeatureEncoder().to(self.device)
+        self.F = FeatureEncoder(input_channel = in_channels).to(self.device)
         self.C1 = LabelClassifier(feat_dim=feat_dim, num_classes=num_classes).to(self.device)
         self.C2 = LabelClassifier(feat_dim=feat_dim, num_classes=num_classes).to(self.device)
 
@@ -320,7 +320,7 @@ if __name__ == "__main__":
 
     # 初始化solver
     solver = MCD_solver(
-        in_channels=6,
+        in_channels=config.channels,
         feat_dim=128,
         num_classes=num_classes,
         num_k=4

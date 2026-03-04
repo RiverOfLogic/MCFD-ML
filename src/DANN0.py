@@ -318,7 +318,7 @@ if __name__ == "__main__":
         target_ds=target_ds,
         val_ds=val_ds,
         num_classes=num_classes,
-        in_channels=6,
+        in_channels=config.channels,
         feat_dim=128,
         batch_size=config.DANN0_batch_size,
         lr=config.DANN0_lr,

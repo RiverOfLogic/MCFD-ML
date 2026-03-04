@@ -83,7 +83,7 @@ class MultiDomainDiscriminator(nn.Module):
 class MultiDomainDANN(nn.Module):
     def __init__(self, in_channels: int, feat_dim: int, num_classes: int, num_domains: int):
         super().__init__()
-        self.F = FeatureEncoder()
+        self.F = FeatureEncoder(input_channel = in_channels)
         self.C = LabelClassifier(feat_dim=feat_dim, num_classes=num_classes)
         self.D = MultiDomainDiscriminator(feat_dim=feat_dim, num_domains=num_domains)
 
@@ -336,7 +336,7 @@ if __name__ == "__main__":
         target_ds=target_ds,
         val_ds=val_ds,
         num_classes=num_classes,
-        in_channels=6,
+        in_channels=config.channels,
         feat_dim=128,
         batch_size=config.DANN_batch_size,
         lr=config.DANN_lr,

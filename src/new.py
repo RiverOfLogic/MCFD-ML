@@ -121,7 +121,7 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_ds, batch_size=128, shuffle=False, num_workers=4)
     test_loader = DataLoader(test_ds,batch_size=128,shuffle=False, num_workers=4)
 
-    model = Model(in_channels=6, feat_dim=128, num_classes=num_classes, num_domains=12).to(device)
+    model = Model(in_channels=config.channels, feat_dim=128, num_classes=num_classes, num_domains=config.domain_num).to(device)
     if os.path.exists(pretrained_model_path):
         print(f"正在加载预训练模型权重: {pretrained_model_path}")
         # map_location 用于 CPU/GPU 兼容

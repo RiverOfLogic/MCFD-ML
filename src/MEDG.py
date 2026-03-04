@@ -187,7 +187,7 @@ def train(
     weight_HSIC = 0.5,
     weight_rec = 0.1,
     device: str = "cuda",
-    save_name: str = "task4",
+    save_name: str = f"task{config.TASK}",
     batch_size = 128
 ):
     source_loader = DataLoader(source_ds, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
@@ -195,7 +195,7 @@ def train(
     val_loader = DataLoader(val_ds, batch_size=64, shuffle=False)
 
     num_domains = len(source_ds.domain_to_id)
-    model = Model(in_channels=6, feat_dim=128, num_classes=num_classes, num_domains=num_domains).to(device)
+    model = Model(in_channels=config.channels, feat_dim=128, num_classes=num_classes, num_domains=num_domains).to(device)
     #load_pretrained_encoder(model, "con_vis/weights/encoder_q_best.pth", freeze=False)
     #print("FeatureExtractor parameters:", sum(p.numel() for p in model.F.parameters()))
 
