@@ -278,14 +278,14 @@ def train(
             loss_dom = 0.5 * (F.cross_entropy(d_s_logits, did_s) + F.cross_entropy(d_t_logits, did_t))
 
             # 2. CORAL 对齐损失 
-            loss_coral = criterion_coral(m_s, m_t)
+            loss_coral = criterion_coral(z_s, z_t)
 
             # 3. 域分类准确率损失
             dom_loss = 0.5*(F.cross_entropy(dom_s, did_s)+F.cross_entropy(dom_t, did_t))
             # 4. 正交损失
             orth_loss = 0.5*(hsic_loss1(z_s, d_s)+hsic_loss1(z_t, d_t))
             # 5. 重构损失
-            rec_loss = 0.5*(F.mse_loss(rec_s, z_s.detach())+ F.mse_loss(rec_t, z_t.detach()))
+            rec_loss = 0.5*(F.mse_loss(rec_s, m_s.detach())+ F.mse_loss(rec_t, m_t.detach()))
 
             # 总损失
             #total_loss = loss_inner + weight_outer*loss_outer + weight_domain * loss_dom + weight_coral * loss_coral + weight_domainacc * dom_loss + weight_HSIC*orth_loss+weight_rec*rec_loss
@@ -438,11 +438,18 @@ def plot_tsne(z_features, d_features, labels,domain_labels, save_path="tsne_outp
     axs[1].set_xlabel('t-SNE Component 1')
     axs[1].set_ylabel('t-SNE Component 2')
 
-    # 绘制 d 特征与域的 t-SNE 图
-    axs[2].scatter(d_embedded[:, 0], d_embedded[:, 1], c=domain_labels, cmap='jet', s=10)
-    axs[2].set_title('t-SNE of d Features (with Domains)')
+    # 绘制 d 特征与故障的 t-SNE 图
+    axs[2].scatter(d_embedded[:, 0], d_embedded[:, 1], c=labels, cmap='jet', s=10)
+    axs[2].set_title('t-SNE of d Features (with Faults)')
     axs[2].set_xlabel('t-SNE Component 1')
     axs[2].set_ylabel('t-SNE Component 2')
+
+    # 绘制 d 特征与域的 t-SNE 图
+    axs[3].scatter(d_embedded[:, 0], d_embedded[:, 1], c=domain_labels, cmap='jet', s=10)
+    axs[3].set_title('t-SNE of d Features (with Domains)')
+    axs[3].set_xlabel('t-SNE Component 1')
+    axs[3].set_ylabel('t-SNE Component 2')
+    
 
     # 保存为 PDF 文件
     plt.tight_layout()

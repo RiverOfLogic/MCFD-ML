@@ -93,4 +93,10 @@ CDAN_trade_off = 1.5
 #域分析
 pretrained_model_path = MODELS_DIR / "task7_43_98.92.pt"
 Domain_num_classes = 7
-domain_num = 8
+domain_num = 11
+
+#ERM
+ERM_num_classes = 7
+ERM_epochs = 100
+ERM_batch_size = 128
+ERM_lr = 0.0005

@@ -153,10 +153,10 @@ def process_hierarchical_dataset(root_dir, save_dir, window_size=2048, stride=10
 
 if __name__ == "__main__":
     # 修改为你的实际路径
-    ROOT_DATA_PATH = r"E:\研一\实验\MEDG_DA\MAFDATA" # 修改为你的主目录路径
-    SAVE_PATH = r"E:\研一\实验\MEDG_DA\data\MAFAULDA"
+    ROOT_DATA_PATH = r"E:\研一\论文复现\MAFDATA" # 修改为你的主目录路径
+    SAVE_PATH = r"E:\研一\实验\MEDG_DA\data\MAFAULDA1"
     
     WINDOW = 2048 
-    STRIDE = 1024 # 这里的步长可以根据需要修改，如果设为2048则无重叠
+    STRIDE = 2048 # 这里的步长可以根据需要修改，如果设为2048则无重叠
     
     process_hierarchical_dataset(ROOT_DATA_PATH, SAVE_PATH, WINDOW, STRIDE, expected_channels=8)
