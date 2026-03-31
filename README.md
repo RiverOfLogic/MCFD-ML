@@ -1,6 +1,6 @@
-# MEDG_DA
+# MCFD-ML
 
-多源域泛化故障诊断框架 (Multi-source Ensemble Domain Generalization for Fault Diagnosis)
+多源域泛化故障诊断框架 (Multi-Constraint Feature Disentanglement with Meta-Learning for Cross-Domain Machinery Fault Diagnosis)
 
 ## 📋 项目简介
 
@@ -10,10 +10,12 @@
 
 项目实现了多种域自适应/域泛化算法：
 
-- **MEDG** (Multi-source Ensemble Domain Generalization): 主要方法，集成多种域适应策略
+- **MCFD-ML**: 主要方法，集成多种域适应策略
 - **DANN** (Domain Adversarial Neural Network): 域对抗神经网络
 - **CDAN** (Conditional Domain Adversarial Network): 条件域对抗网络
 - **MCD** (Maximum Classifier Discrepancy): 最大分类器差异
+- **MLDG** (Meta-Learning Domain Generalization): 元学习域泛化方法
+- **CDDG** (Causal Disentanglement Domain Generalization): 因果解耦领域泛化
 - **ERM** (Empirical Risk Minimization): 经验风险最小化（基线方法）
 
 ## 📁 项目结构
