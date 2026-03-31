@@ -1,6 +1,6 @@
 # MCFD-ML
 
-多源域泛化故障诊断框架 (Multi-Constraint Feature Disentanglement with Meta-Learning for Cross-Domain Machinery Fault Diagnosis)
+基于多约束特征解耦和元学习的旋转机械跨域故障诊断 (Multi-Constraint Feature Disentanglement with Meta-Learning for Cross-Domain Machinery Fault Diagnosis)
 
 ## 📋 项目简介
 
