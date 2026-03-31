@@ -1,0 +1,66 @@
+==============================
+CDDG Training - 2026-03-22 11:42:44, Task: 7, seed: 42
+Epoch 001 | Loss: 6.1088 | Src Acc: 85.34% | Val Acc: 56.03%
+ >>> Best model saved with Val Acc: 56.03%
+Epoch 002 | Loss: 3.2391 | Src Acc: 98.49% | Val Acc: 60.94%
+ >>> Best model saved with Val Acc: 60.94%
+Epoch 003 | Loss: 2.6802 | Src Acc: 100.00% | Val Acc: 63.35%
+ >>> Best model saved with Val Acc: 63.35%
+Epoch 004 | Loss: 2.3561 | Src Acc: 98.52% | Val Acc: 61.39%
+Epoch 005 | Loss: 2.1811 | Src Acc: 99.97% | Val Acc: 61.74%
+
+✓ Loaded best model with Val Acc: 63.35%
+Training Complete - 2026-03-22 11:47:00
+Test Results: Accuracy=63.3431% | Loss=1.1517 | Macro F1=0.6465 | Weighted F1=0.6475
+==============================
+==============================
+CDDG Training - 2026-03-22 11:50:09, Task: 7, seed: 42
+Epoch 001 | Loss: 1.9271 | Src Acc: 99.40% | Val Acc: 59.79%
+ >>> Best model saved with Val Acc: 59.79%
+Epoch 002 | Loss: 1.3977 | Src Acc: 100.00% | Val Acc: 67.90%
+ >>> Best model saved with Val Acc: 67.90%
+Epoch 003 | Loss: 1.2632 | Src Acc: 100.00% | Val Acc: 69.50%
+ >>> Best model saved with Val Acc: 69.50%
+Epoch 004 | Loss: 1.1983 | Src Acc: 100.00% | Val Acc: 69.70%
+ >>> Best model saved with Val Acc: 69.70%
+Epoch 005 | Loss: 1.1483 | Src Acc: 100.00% | Val Acc: 70.81%
+ >>> Best model saved with Val Acc: 70.81%
+
+✓ Loaded best model with Val Acc: 70.81%
+Training Complete - 2026-03-22 11:54:24
+Test Results: Accuracy=69.9413% | Loss=1.0436 | Macro F1=0.7128 | Weighted F1=0.7139
+==============================
+==============================
+CDDG Training - 2026-03-22 11:59:04, Task: 7, seed: 42
+Epoch 001 | Loss: 2.2378 | Src Acc: 99.46% | Val Acc: 62.64%
+ >>> Best model saved with Val Acc: 62.64%
+Epoch 002 | Loss: 1.6888 | Src Acc: 99.91% | Val Acc: 66.30%
+ >>> Best model saved with Val Acc: 66.30%
+Epoch 003 | Loss: 1.6528 | Src Acc: 99.89% | Val Acc: 67.30%
+ >>> Best model saved with Val Acc: 67.30%
+Epoch 004 | Loss: 1.6534 | Src Acc: 99.91% | Val Acc: 66.80%
+Epoch 005 | Loss: 1.6537 | Src Acc: 99.89% | Val Acc: 67.15%
+
+✓ Loaded best model with Val Acc: 67.30%
+Training Complete - 2026-03-22 11:59:27
+Test Results: Accuracy=66.6667% | Loss=1.1689 | Macro F1=0.6741 | Weighted F1=0.6755
+==============================
+==============================
+CDDG Training - 2026-03-22 12:03:15, Task: 7, seed: 42
+Iteration 50/200 | Loss: 1.7533 | LR: 1e-05
+Epoch 001 (Steps: 55) | Src Acc: 99.46% | Val Acc: 62.69%
+ >>> Best model saved with Val Acc: 62.69%
+Iteration 100/200 | Loss: 1.6516 | LR: 1.0000000000000002e-06
+Epoch 002 (Steps: 110) | Src Acc: 99.91% | Val Acc: 66.35%
+ >>> Best model saved with Val Acc: 66.35%
+Iteration 150/200 | Loss: 1.6445 | LR: 1.0000000000000002e-07
+Epoch 003 (Steps: 165) | Src Acc: 99.86% | Val Acc: 67.60%
+ >>> Best model saved with Val Acc: 67.60%
+Iteration 200/200 | Loss: 1.6965 | LR: 1.0000000000000004e-08
+Epoch 004 (Steps: 200) | Src Acc: 99.91% | Val Acc: 68.40%
+ >>> Best model saved with Val Acc: 68.40%
+
+✓ Loaded best model with Val Acc: 68.40%
+Training Complete - 2026-03-22 12:03:31
+Test Results: Accuracy=67.6442% | Loss=1.1490 | Macro F1=0.6831 | Weighted F1=0.6845
+==============================
