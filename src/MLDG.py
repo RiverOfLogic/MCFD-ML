@@ -1,9 +1,11 @@
 import os
+from pathlib import Path
 import torch
 from torch.func import functional_call
 import random
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from dataloader_utils import loader_kwargs
 from MEDGNet import Model
 import copy
 import numpy as np
@@ -82,8 +84,8 @@ def train_mldg(
     batch_size = 128
 ):
     # MLDG 是域泛化方法，训练时只使用源域数据
-    source_loader = DataLoader(source_ds, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
-    val_loader = DataLoader(val_ds, batch_size=64, shuffle=False)
+    source_loader = DataLoader(source_ds, batch_size=batch_size, shuffle=True, **loader_kwargs(drop_last=True))
+    val_loader = DataLoader(val_ds, batch_size=64, shuffle=False, **loader_kwargs(drop_last=False))
 
     num_domains = len(source_ds.domain_to_id)
     model = Model(in_channels=config.channels, feat_dim=128, num_classes=num_classes, num_domains=num_domains).to(device)
@@ -186,7 +188,7 @@ def train_mldg(
                 'best_acc': best_acc,
                 'global_map': global_map,  
             }
-            save_path = config.MODELS_DIR / f"{save_name}_{args.seed}.pt"
+            save_path = Path(config.MODELS_DIR) / f"{save_name}_{args.seed}.pt"
             torch.save(state, save_path)
             print(f" >>> Best model saved with Tgt_Acc: {best_acc*100:.2f}%")
 
@@ -269,14 +271,14 @@ def eval_cls(model, loader, device):
     return loss_sum/total, correct/total, correct_dom/total_dom
 
 def test(model, target_ds, batch_size=64, device='cuda', save_path=f'mldg_tsne_results_{args.seed}.pdf'):
-    target_loader = DataLoader(target_ds, batch_size=batch_size, shuffle=False)
+    target_loader = DataLoader(target_ds, batch_size=batch_size, shuffle=False, **loader_kwargs(drop_last=False))
     loss, acc, dom_acc, all_z, all_d, all_labels, all_domain_labels, macro_f1, weighted_f1 = eval_cls1(model, target_loader, device)
     
     log_msg(f"MLDG 测试完成 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     log_msg(f"测试结果: 准确率={acc*100:.4f}% | Loss={loss:.4f} | Macro F1={macro_f1:.4f} | Weighted F1={weighted_f1:.4f}")
     log_msg("=" * 30)
     
-    with open(config.LOGS_DIR / 'MLDG_training.log', 'a') as f:
+    with open(Path(config.LOGS_DIR) / 'MLDG_training.log', 'a') as f:
         f.write('\n'.join(log_messages) + '\n')
         
     print(f"Test Loss: {loss:.4f}, Target Domain Accuracy: {acc * 100:.2f}%")
@@ -340,8 +342,8 @@ if __name__ == "__main__":
     log_msg("." * 30)
     
     # 增加的超参数 MLDG 相关
-    mldg_inner_lr = 0.001
-    mldg_beta = 1.0
+    mldg_inner_lr = config.MLDG_inner_lr
+    mldg_beta = config.MLDG_beta
     log_msg(f"参数: num_classes={config.num_classes}, batch_size={config.batch_size}, lr={config.lr}, epochs={config.epochs}, inner_lr={mldg_inner_lr}, beta={mldg_beta}")
 
     model = train_mldg(
@@ -353,8 +355,8 @@ if __name__ == "__main__":
         lr=config.lr,
         inner_lr=mldg_inner_lr,
         weight_beta=mldg_beta,
-        save_name="mldg_baseline",
+        save_name=f"mldg_task{config.TASK}",
         batch_size=config.batch_size
     )
     
-    test(model, test_ds, 64)
+    test(model, test_ds, 64, save_path=Path(config.FIGURES_DIR) / f"mldg_tsne_results_task{config.TASK}_{args.seed}.pdf")

@@ -1,13 +1,43 @@
-# 数据和模型文件（太大，不放GitHub）
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.env
+.venv/
+env/
+venv/
+
+# Local data and generated artifacts
+raw_data/
+data/
+models/
+logs/
+figures/
+experiments/results/
+
+# Large binary outputs
+*.ckpt
+*.mat
 *.npy
 *.npz
+*.pt
 *.pth
-*.ckpt
 
-# Python缓存
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.xlsx
-*.pdf
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# AI agent instructions and local assistant metadata
+[Aa][Gg][Ee][Nn][Tt].md
+[Aa][Gg][Ee][Nn][Tt][Ss].md
+[Cc][Ll][Aa][Uu][Dd][Ee].md
+.claude/
+.codex/

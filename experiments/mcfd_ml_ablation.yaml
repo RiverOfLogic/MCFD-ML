@@ -1,0 +1,75 @@
+methods:
+  - MCFD-ML-no-meta
+  - MCFD-ML-no-adv
+  - MCFD-ML-no-coral
+  - MCFD-ML-no-domain
+  - MCFD-ML-no-HSIC
+  - MCFD-ML-no-rec
+
+tasks: [1, 2, 3, 4, 5, 6, 7, 8]
+repeats: 10
+base_seed: 42
+seeds: []
+
+gpus: auto
+max_jobs_per_gpu: auto
+output_dir: experiments/results/mcfd_ml_ablation_{timestamp}
+data_root: data
+
+gpu_scheduler:
+  mode: memory
+  reserve_mb: 1024
+  min_free_mb: 512
+  poll_interval_sec: 5
+  startup_grace_sec: 30
+  default_job_memory_mb: 3000
+  max_jobs_per_gpu_cap: 4
+  method_memory_mb:
+    MCFD-ML: 4200
+
+defaults:
+  num_classes: 7
+  feat_dim: 128
+  num_workers: 2
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+
+datasets:
+  DIRG:
+    tasks: [1, 2, 3, 4]
+    channels: 6
+    path: data/DIRG
+  MAFAULDA:
+    tasks: [5, 6, 7, 8]
+    channels: 8
+    path: data/MAFAULDA
+
+params:
+  MCFD-ML:
+    DIRG:
+      epochs: 100
+      batch_size: 64
+      lr: 0.0001
+      weight_outer: 0.3
+      weight_coral: 0.3
+      weight_adv: 0.7
+      weight_domainacc: 0.1
+      weight_HSIC: 0.3
+      weight_rec: 0.1
+      lr_decay_enabled: false
+      lr_decay_step_size: 20
+      lr_decay_gamma: 0.5
+    MAFAULDA:
+      epochs: 100
+      batch_size: 64
+      lr: 0.0001
+      weight_outer: 0.5
+      weight_coral: 0.3
+      weight_adv: 1.0
+      weight_domainacc: 0.2
+      weight_HSIC: 0.1
+      weight_rec: 0.2
+      lr_decay_enabled: false
+      lr_decay_step_size: 20
+      lr_decay_gamma: 0.5

@@ -6,6 +6,10 @@ from sklearn.metrics import f1_score
 from MyNewDataset import NormalDataset, TargetDataset
 import config
 from torch.utils.data import DataLoader
+from dataloader_utils import loader_kwargs
+import argparse
+import random
+import numpy as np
 
 class ERMModel(nn.Module):
     def __init__(self, in_channels: int, feat_dim: int, num_classes: int):
@@ -28,11 +32,11 @@ def train_erm(Source_loader,val_loader, model, optimizer, device):
         y_t = y_t.to(device)
 
         # 计算源域损失
-        y_logits_s, _ = model(x_s)
+        y_logits_s = model(x_s)
         loss_s = F.cross_entropy(y_logits_s, y_s)
 
         # 计算目标域损失
-        y_logits_t, _ = model(x_t)
+        y_logits_t = model(x_t)
         loss_t = F.cross_entropy(y_logits_t, y_t)
 
         # 总损失
@@ -80,6 +84,18 @@ def els(loader, model, device):
     return avg_loss, accuracy, macro_f1, weighted_f1
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--seed', type=int, default=None, help='Random seed')
+    args = parser.parse_args()
+
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
+        np.random.seed(args.seed)
+        random.seed(args.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(args.seed)
+        print(f"Random seed set to: {args.seed}")
+
     train_x = config.DIRG_DATA_DIR / "train_x.npy"
     train_y = config.DIRG_DATA_DIR / "train_y.npy"
     train_info = config.DIRG_DATA_DIR / "train_info.npy"
@@ -111,23 +127,22 @@ if __name__ == "__main__":
         x_path=test_x, y_path=test_y, info_path=test_info,
         transform=None, filter_domains=filter_domains_tgt, mmap_mode="r"
     )
-    batch_size = config.batch_size
-    num_workers = 8
+    batch_size = config.ERM_batch_size
 
     source_loader = DataLoader(
         source_ds, batch_size=batch_size, shuffle=True,
-        num_workers=num_workers, pin_memory=True, drop_last=True
+        **loader_kwargs(drop_last=True)
     )
     val_loader = DataLoader(
         val_ds, batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=True, drop_last=False
+        **loader_kwargs(drop_last=False)
     )
     test_loader = DataLoader(
-        test_ds, batch_size=config.DANN_batch_size, shuffle=False,
-        num_workers=8, pin_memory=True, drop_last=False
+        test_ds, batch_size=config.ERM_batch_size, shuffle=False,
+        **loader_kwargs(drop_last=False)
     )
 
-    model = ERMModel(in_channels=6, feat_dim=128, num_classes=config.ERM_num_classes).to("cuda")
+    model = ERMModel(in_channels=config.channels, feat_dim=128, num_classes=config.ERM_num_classes).to("cuda")
     optimizer = torch.optim.Adam(model.parameters(), lr=config.ERM_lr)
     epochs = config.ERM_epochs
     for epoch in range(epochs):

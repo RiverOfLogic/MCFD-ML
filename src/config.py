@@ -1,3 +1,5 @@
+import json
+import os
 from pathlib import Path
 
 #dataset = "DIRG"
@@ -5,11 +7,18 @@ dataset = "MAFAULDA"
 TASK = 7
 
 ROOT_DIR = Path(__file__).parent.parent
-DIRG_DATA_DIR = ROOT_DIR / "data" / dataset
-LOGS_DIR = ROOT_DIR / "logs"
-MODELS_DIR = ROOT_DIR / "models"
+DATA_ROOT = ROOT_DIR / "data"
+DIRG_DATA_DIR = DATA_ROOT / dataset
+OUTPUT_ROOT = ROOT_DIR
+LOGS_DIR = OUTPUT_ROOT / "logs"
+MODELS_DIR = OUTPUT_ROOT / "models"
+FIGURES_DIR = OUTPUT_ROOT
 
 device = "cuda"
+num_workers = 0
+pin_memory = True
+persistent_workers = True
+prefetch_factor = 2
 #DIRG任务划分
 DIRG_TASK_DOMAINS = {
     1: {
@@ -48,18 +57,23 @@ DIRG_TASK_DOMAINS = {
 DIRG_task_src = DIRG_TASK_DOMAINS[TASK]['src']
 DIRG_task_tgt = DIRG_TASK_DOMAINS[TASK]['tgt']
 
-#MEDG权重
+# MCFD-ML weights. Legacy scripts may still refer to the implementation as MEDG.
 num_classes=7
 epochs = 100
 channels = 8
 weight_outer = 0.5
 weight_coral=0.3
-weight_adv = 1
+weight_adv = 1.0
 weight_domainacc = 0.2
 weight_HSIC = 0.1
 weight_rec = 0.2
-batch_size = 128
-lr = 0.0005
+batch_size = 64
+lr = 0.0001
+lr_decay_enabled = False
+lr_decay_step_size = 20
+lr_decay_gamma = 0.9
+medg_ablation = "none"
+medg_method_name = "MCFD-ML"
 
 #DANN0权重
 DANN0_num_classes = 7
@@ -100,3 +114,45 @@ ERM_num_classes = 7
 ERM_epochs = 100
 ERM_batch_size = 128
 ERM_lr = 0.0005
+
+#MLDG
+MLDG_inner_lr = 0.001
+MLDG_beta = 1.0
+
+#CDDG
+CDDG_epochs = 100
+CDDG_batch_size = 64
+CDDG_lr = 0.0001
+
+
+def _apply_runtime_config():
+    runtime_config_path = os.environ.get("MCED_RUNTIME_CONFIG")
+    if not runtime_config_path:
+        return
+    with open(runtime_config_path, "r", encoding="utf-8-sig") as f:
+        overrides = json.load(f)
+    for key, value in overrides.items():
+        if key.startswith("_"):
+            continue
+        if key.endswith("_DIR") or key.endswith("_ROOT") or key in {"DIRG_DATA_DIR"}:
+            value = Path(value)
+            if not value.is_absolute():
+                value = ROOT_DIR / value
+        globals()[key] = value
+
+    if "DIRG_DATA_DIR" not in overrides:
+        globals()["DIRG_DATA_DIR"] = DATA_ROOT / dataset
+    globals()["LOGS_DIR"] = Path(LOGS_DIR)
+    globals()["MODELS_DIR"] = Path(MODELS_DIR)
+    globals()["FIGURES_DIR"] = Path(FIGURES_DIR)
+    globals()["LOGS_DIR"].mkdir(parents=True, exist_ok=True)
+    globals()["MODELS_DIR"].mkdir(parents=True, exist_ok=True)
+    globals()["FIGURES_DIR"].mkdir(parents=True, exist_ok=True)
+    globals()["DIRG_task_src"] = DIRG_TASK_DOMAINS[TASK]["src"]
+    globals()["DIRG_task_tgt"] = DIRG_TASK_DOMAINS[TASK]["tgt"]
+
+
+_apply_runtime_config()
+
+for _output_dir in (LOGS_DIR, MODELS_DIR, FIGURES_DIR):
+    Path(_output_dir).mkdir(parents=True, exist_ok=True)

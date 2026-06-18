@@ -1,0 +1,125 @@
+methods:
+  - ERM
+  - DANN
+  - M-DANN
+  - CDAN
+  - MCD
+  - MLDG
+  - CDDG
+  - MCFD-ML
+
+tasks: [1, 2, 3, 4, 5, 6, 7, 8]
+repeats: 10
+base_seed: 42
+seeds: []
+
+gpus: auto
+max_jobs_per_gpu: auto
+output_dir: experiments/results/{timestamp}
+data_root: data
+
+gpu_scheduler:
+  mode: memory
+  reserve_mb: 1024
+  min_free_mb: 512
+  poll_interval_sec: 5
+  startup_grace_sec: 30
+  default_job_memory_mb: 3000
+  max_jobs_per_gpu_cap: 4
+  method_memory_mb:
+    ERM: 2200
+    DANN: 2600
+    M-DANN: 3000
+    CDAN: 3400
+    MCD: 3000
+    MLDG: 3800
+    CDDG: 3800
+    MCFD-ML: 4200
+
+defaults:
+  num_classes: 7
+  feat_dim: 128
+  num_workers: 2
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+
+datasets:
+  DIRG:
+    tasks: [1, 2, 3, 4]
+    channels: 6
+    path: data/DIRG
+  MAFAULDA:
+    tasks: [5, 6, 7, 8]
+    channels: 8
+    path: data/MAFAULDA
+
+params:
+  ERM:
+    epochs: 100
+    batch_size: 128
+    lr: 0.0005
+
+  DANN:
+    epochs: 100
+    batch_size: 128
+    lr: 0.0005
+    weight_domain: 0.5
+
+  M-DANN:
+    epochs: 100
+    batch_size: 128
+    lr: 0.0005
+    weight_domain: 1.0
+
+  CDAN:
+    epochs: 100
+    batch_size: 64
+    lr: 0.0005
+    trade_off: 1.5
+    entropy: true
+
+  MCD:
+    epochs: 100
+    batch_size: 128
+    lr: 0.0005
+
+  MLDG:
+    epochs: 100
+    batch_size: 64
+    lr: 0.0001
+    inner_lr: 0.001
+    beta: 1.0
+
+  CDDG:
+    epochs: 100
+    batch_size: 64
+    lr: 0.0001
+
+  MCFD-ML:
+    DIRG:
+      epochs: 100
+      batch_size: 64
+      lr: 0.0001
+      weight_outer: 0.3
+      weight_coral: 0.3
+      weight_adv: 0.7
+      weight_domainacc: 0.1
+      weight_HSIC: 0.3
+      weight_rec: 0.1
+      lr_decay_enabled: false
+      lr_decay_step_size: 20
+      lr_decay_gamma: 0.5
+    MAFAULDA:
+      epochs: 100
+      batch_size: 64
+      lr: 0.0001
+      weight_outer: 0.5
+      weight_coral: 0.3
+      weight_adv: 1.0
+      weight_domainacc: 0.2
+      weight_HSIC: 0.1
+      weight_rec: 0.2
+      lr_decay_enabled: false
+      lr_decay_step_size: 20
+      lr_decay_gamma: 0.5

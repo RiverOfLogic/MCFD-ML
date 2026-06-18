@@ -5,6 +5,17 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from MyNewDataset import ConDataset
 import torch.nn.utils.spectral_norm as spectral_norm
+from typing import NamedTuple
+
+
+class MEDGOutputs(NamedTuple):
+    task_logits: torch.Tensor
+    adversarial_domain_logits: torch.Tensor
+    domain_logits: torch.Tensor
+    shared_features: torch.Tensor
+    task_features: torch.Tensor
+    domain_features: torch.Tensor
+    reconstructed_features: torch.Tensor
 
 class GradReverseFn(torch.autograd.Function):
     @staticmethod
@@ -175,12 +186,12 @@ class StrongDiscriminator(nn.Module):
         x = self.res_blocks(x)
         return self.output_layer(x)
 
-class YourModel(nn.Module):
+class ProjectionClassifier(nn.Module):
     def __init__(self, input_dim, num_classes, feature_dim=128):
-        super(YourModel, self).__init__()
+        super().__init__()
         
         # 共享的特征提取层
-        self.feature_extractor = nn.Sequential(
+        self.projector = nn.Sequential(
             nn.Linear(input_dim, 256),
             nn.BatchNorm1d(256),
             nn.ReLU(),
@@ -197,38 +208,36 @@ class YourModel(nn.Module):
             nn.Dropout(0.3)
         )
         
-        # 自注意力层
+        
+        # 分类头
+        self.classifier = nn.Linear(feature_dim, num_classes)
+        
+        # 特征头（用于正交损失）
+        self.representation_head = nn.Sequential(
+            nn.Linear(feature_dim, feature_dim),
+            nn.BatchNorm1d(feature_dim),
+            nn.ReLU(),
+            nn.Dropout(0.1)
+        )
         self.attention = nn.MultiheadAttention(
             embed_dim=feature_dim,
             num_heads=4,
             batch_first=True
         )
         
-        # 分类头
-        self.classifier = nn.Linear(feature_dim, num_classes)
-        
-        # 特征头（用于正交损失）
-        self.feature_head = nn.Sequential(
-            nn.Linear(feature_dim, feature_dim),
-            nn.BatchNorm1d(feature_dim),
-            nn.ReLU(),
-            nn.Dropout(0.1)
-        )
-        
     def forward(self, x):
-        batch_size = x.size(0)
         # 提取基础特征
-        base_features = self.feature_extractor(x)  # (batch_size, feature_dim)
-        # 添加序列维度用于注意力
-        d_seq = self.feature_head(base_features)  # (batch_size, feature_dim)
-        x_seq = d_seq.unsqueeze(1)  # (batch_size, 1, feature_dim)
-        # 自注意力
-        attn_output, _ = self.attention(x_seq, x_seq, x_seq)
-        # 取第一个位置
-        attended_features = attn_output.squeeze(1)  # (batch_size, feature_dim)
+        projected_features = self.projector(x)  # (batch_size, feature_dim)
+        head_features = self.representation_head(projected_features)  # (batch_size, feature_dim)
+        sequence_features = head_features.unsqueeze(1)  # (batch_size, 1, feature_dim)
+        attended_features, _ = self.attention(sequence_features, sequence_features, sequence_features)
+        attended_features = attended_features.squeeze(1)  # (batch_size, feature_dim)
         # 最终分类
         logits = self.classifier(attended_features)
-        return logits, base_features
+        return logits, projected_features
+
+
+YourModel = ProjectionClassifier
 
 class ReconDecoder(nn.Module):
     def __init__(self, feat_dim=128, dom_dim=128, out_dim=128, hidden=256):
@@ -244,26 +253,54 @@ class ReconDecoder(nn.Module):
             nn.Linear(hidden, out_dim)  # 输出重构任务特征
         )
 
-    def forward(self, feat, z_dom):
+    def forward(self, task_features, domain_features):
         # 特征拼接
-        x = torch.cat([feat, z_dom], dim=1)  # feat 和 d 连接
+        x = torch.cat([task_features, domain_features], dim=1)  # feat 和 d 连接
         return self.net(x)  # 返回重构的任务特征
 
 
 class Model(nn.Module):
     def __init__(self, in_channels: int, feat_dim: int, num_classes: int, num_domains: int):
         super().__init__()
-        self.F = FeatureEncoder(input_channel=in_channels, feature_dim=128)
-        self.C = YourModel(input_dim=128,feature_dim=128, num_classes=num_classes)
-        self.D = StrongDiscriminator(feat_dim=128, num_domains=num_domains)
-        self.DC = YourModel(input_dim=128,feature_dim=128, num_classes=num_domains)
-        self.R = ReconDecoder(feat_dim=128, dom_dim=128, out_dim=128, hidden=256)
+        self.encoder = FeatureEncoder(input_channel=in_channels, feature_dim=feat_dim)
+        self.task_head = ProjectionClassifier(input_dim=feat_dim, feature_dim=feat_dim, num_classes=num_classes)
+        self.adversarial_domain_discriminator = StrongDiscriminator(feat_dim=feat_dim, num_domains=num_domains)
+        self.domain_head = ProjectionClassifier(input_dim=feat_dim, feature_dim=feat_dim, num_classes=num_domains)
+        self.reconstructor = ReconDecoder(feat_dim=feat_dim, dom_dim=feat_dim, out_dim=feat_dim, hidden=256)
+
+    @property
+    def F(self):
+        return self.encoder
+
+    @property
+    def C(self):
+        return self.task_head
+
+    @property
+    def D(self):
+        return self.adversarial_domain_discriminator
+
+    @property
+    def DC(self):
+        return self.domain_head
+
+    @property
+    def R(self):
+        return self.reconstructor
 
     def forward(self, x, alpha: float = 0.0):
-        m = self.F(x)
-        y_logits,z = self.C(m)
-        dom,d = self.DC(m)
-        feat_rev = grad_reverse(z, alpha)
-        d_logits = self.D(feat_rev)
-        rec = self.R(z, d)
-        return y_logits, d_logits,dom, m,z,d,rec
+        shared_features = self.encoder(x)
+        task_logits, task_features = self.task_head(shared_features)
+        domain_logits, domain_features = self.domain_head(shared_features)
+        reversed_task_features = grad_reverse(task_features, alpha)
+        adversarial_domain_logits = self.adversarial_domain_discriminator(reversed_task_features)
+        reconstructed_features = self.reconstructor(task_features, domain_features)
+        return MEDGOutputs(
+            task_logits=task_logits,
+            adversarial_domain_logits=adversarial_domain_logits,
+            domain_logits=domain_logits,
+            shared_features=shared_features,
+            task_features=task_features,
+            domain_features=domain_features,
+            reconstructed_features=reconstructed_features,
+        )

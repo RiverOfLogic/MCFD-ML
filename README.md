@@ -1,131 +1,172 @@
 # MCFD-ML
 
-基于多约束特征解耦和元学习的旋转机械跨域故障诊断 (Multi-Constraint Feature Disentanglement with Meta-Learning for Cross-Domain Machinery Fault Diagnosis)
+MCFD-ML is a PyTorch project for multi-source cross-condition equipment fault diagnosis. It evaluates domain adaptation and domain generalization methods on bearing vibration datasets under changing speed and load conditions.
 
-## 📋 项目简介
+The main method is **MCFD-ML**, previously named MEDG in earlier internal code. The implementation files `src/MEDG.py` and `src/MEDGNet.py` are kept for backward compatibility, while experiment configs and reported method names now use `MCFD-ML`.
 
-本项目实现了一种基于深度学习的多源域泛化方法，用于旋转机械故障诊断。通过结合多种域自适应技术，提高模型在未见目标域上的泛化能力。
+## Features
 
-## 🔧 主要方法
+- Multi-source fault diagnosis on DIRG and MAFAULDA.
+- Baselines: ERM, DANN, M-DANN, CDAN, MCD, MLDG, and CDDG.
+- Main method: MCFD-ML with meta-learning, adversarial domain alignment, CORAL, domain supervision, HSIC disentanglement, and reconstruction.
+- YAML-driven experiment scheduler with automatic GPU assignment.
+- Repeated experiments with different random seeds.
+- CSV outputs for raw runs and aggregated mean/std results.
+- MCFD-ML ablation experiments.
 
-项目实现了多种域自适应/域泛化算法：
+## Repository Layout
 
-- **MCFD-ML**: 主要方法，集成多种域适应策略
-- **DANN** (Domain Adversarial Neural Network): 域对抗神经网络
-- **CDAN** (Conditional Domain Adversarial Network): 条件域对抗网络
-- **MCD** (Maximum Classifier Discrepancy): 最大分类器差异
-- **MLDG** (Meta-Learning Domain Generalization): 元学习域泛化方法
-- **CDDG** (Causal Disentanglement Domain Generalization): 因果解耦领域泛化
-- **ERM** (Empirical Risk Minimization): 经验风险最小化（基线方法）
-
-## 📁 项目结构
-
-```
-MEDG_DA/
-├── src/                    # 源代码目录
-│   ├── MEDG.py            # 主训练脚本
-│   ├── MEDGNet.py         # 网络模型定义
-│   ├── DANN.py            # DANN 实现
-│   ├── CDAN.py            # CDAN 实现
-│   ├── MCD.py             # MCD 实现
-│   ├── ERM.py             # ERM 实现
-│   ├── MyNewDataset.py    # 数据集加载器
-│   ├── config.py          # 配置文件
-│   └── ...
-├── models/                 # 预训练模型
-│   ├── task2_43_99.35.pt
-│   ├── task4_42_99.76.pt
-│   └── task7_43_98.92.pt
-├── logs/                   # 训练日志
-│   ├── MEDG_training.log
-│   ├── DANN_training.log
-│   └── ...
-└── README.md              # 项目说明文档
+```text
+src/
+  MEDG.py              # MCFD-ML training entrypoint, legacy filename
+  MEDGNet.py           # Shared encoder and MCFD-ML network modules
+  ERM.py               # Empirical risk minimization baseline
+  DANN0.py             # Standard two-domain DANN baseline
+  DANN.py              # Multi-domain DANN baseline
+  CDAN.py              # CDAN baseline
+  MCD.py               # MCD baseline
+  MLDG.py              # MLDG baseline
+  CDDG.py              # CDDG baseline
+  config.py            # Default runtime config plus scheduler overrides
+scripts/
+  preprocess_dirg.py
+  preprocess_mafault.py
+  run_experiments.py   # YAML experiment scheduler
+experiments/
+  auto_train.yaml      # Full benchmark config
+  mcfd_ml_ablation.yaml # MCFD-ML ablation config
 ```
 
-## 🚀 快速开始
+## Datasets
 
-### 环境要求
+Expected raw data locations:
 
-- Python 3.x
-- PyTorch
-- NumPy
-- scikit-learn
-- matplotlib
-
-### 配置参数
-
-在 `src/config.py` 中配置以下参数：
-
-```python
-dataset = "MAFAULDA"  # 或 "DIRG"
-TASK = 7              # 任务编号 (1-8)
-
-# MEDG 超参数
-num_classes = 7
-epochs = 100
-batch_size = 128
-lr = 0.0005
-weight_outer = 0.5
-weight_coral = 0.3
-weight_adv = 1
-weight_domainacc = 0.2
-weight_HSIC = 0.1
-weight_rec = 0.2
+```text
+raw_data/DIRG/
+raw_data/MAFDATA/
 ```
 
-### 训练模型
+Processed data is saved as NumPy arrays:
+
+```text
+data/DIRG/
+data/MAFAULDA/
+```
+
+Each processed dataset contains:
+
+```text
+train_x.npy, train_y.npy, train_info.npy
+val_x.npy, val_y.npy, val_info.npy
+test_x.npy, test_y.npy, test_info.npy
+```
+
+`*_x.npy` has shape `(N, channels, 2048)`. `*_info.npy` stores `[speed, load]` domain metadata.
+
+## Installation
+
+Create an environment with Python 3.10 or newer, then install dependencies:
 
 ```bash
-cd src
-python MEDG.py --seed 42
+pip install -r requirements.txt
 ```
 
-### 任务划分
+Install the PyTorch build that matches your CUDA version if the default package is not suitable for your machine.
 
-项目支持 8 种不同的任务划分，每种任务定义了源域和目标域的组合：
+## Preprocessing
 
-- **Task 1-4**: DIRG 数据集的不同转速组合
-- **Task 5-8**: MAFAULDA 数据集的不同工况组合
+```bash
+python scripts/preprocess_dirg.py --raw raw_data/DIRG --save data/DIRG
+python scripts/preprocess_mafault.py --raw raw_data/MAFDATA --save data/MAFAULDA
+```
 
-## 📊 实验结果
+DIRG uses 6 channels. MAFAULDA uses 8 channels.
 
-部分任务的测试准确率：
+## Training
 
-| 任务 | Seed | 准确率 | Macro F1 | Weighted F1 |
-|------|------|--------|----------|-------------|
-| Task 2 | 43 | 99.35% | 0.9935 | 0.9935 |
-| Task 4 | 42 | 99.76% | 0.9975 | 0.9976 |
-| Task 7 | 43 | 98.92% | 0.9892 | 0.9892 |
-| Task 5 | 42/43 | 100.00% | 1.0000 | 1.0000 |
+Run a dry run first to inspect the expanded jobs:
 
-详细结果请查看 `logs/` 目录下的训练日志。
+```bash
+python scripts/run_experiments.py --config experiments/auto_train.yaml --dry-run
+```
 
-## 📈 可视化
+Run the full benchmark:
 
-项目支持以下可视化输出：
+```bash
+python scripts/run_experiments.py --config experiments/auto_train.yaml
+```
 
-- **t-SNE 特征可视化**: `tsne_output.pdf`
-- **测试结果图表**: `test_results*.pdf`
+Resume an interrupted benchmark:
 
-## 🔑 核心特性
+```bash
+python scripts/run_experiments.py --config experiments/auto_train.yaml --resume
+```
 
-1. **多尺度特征提取**: 使用多尺度残差瓶颈块模拟 Transformer 的多频提取能力
-2. **坐标注意力机制**: 增强模型对关键特征的捕捉能力
-3. **元学习策略**: 通过内外循环优化提升泛化性能
-4. **多损失融合**: 结合 CORAL、对抗损失、HSIC 等多种损失函数
-5. **梯度反转层**: 实现域不变特征学习
+By default, `experiments/auto_train.yaml` runs 8 methods, 8 tasks, and 10 seeds. Tasks 1-4 use DIRG with 6 channels. Tasks 5-8 use MAFAULDA with 8 channels.
 
-## 📝 数据集
+## MCFD-ML Ablations
 
-支持的数据集：
-- **DIRG**: 不同转速下的轴承故障数据
-- **MAFAULDA**: 多工况机械故障数据集
+Run MCFD-ML ablations:
 
-## 📄 许可证
+```bash
+python scripts/run_experiments.py --config experiments/mcfd_ml_ablation.yaml --dry-run
+python scripts/run_experiments.py --config experiments/mcfd_ml_ablation.yaml
+```
 
-本项目仅供学术研究使用。
+The default ablation config runs:
 
-## 📧 联系方式
+- `MCFD-ML-no-meta`
+- `MCFD-ML-no-adv`
+- `MCFD-ML-no-coral`
+- `MCFD-ML-no-domain`
+- `MCFD-ML-no-HSIC`
+- `MCFD-ML-no-rec`
 
-如有问题，请提交 Issue 或联系作者。
+Full MCFD-ML results are expected to come from the main benchmark, then can be merged with ablation results for reporting.
+
+## Outputs
+
+The scheduler writes all outputs under the configured `output_dir`, for example:
+
+```text
+experiments/results/20260617_120000/
+  raw_runs.csv
+  summary.csv
+  runs/
+  logs/
+  models/
+  figures/
+  runtime_configs/
+```
+
+`raw_runs.csv` stores each seed-level run. `summary.csv` stores mean and standard deviation by method, dataset, and task.
+
+## GPU Scheduling
+
+Set `gpus: auto` and `max_jobs_per_gpu: auto` to use memory-aware scheduling. The scheduler queries `nvidia-smi`, estimates each job's memory need, and launches jobs when enough free memory is available.
+
+If you see CUDA out-of-memory errors, lower `gpu_scheduler.max_jobs_per_gpu_cap` or increase `gpu_scheduler.method_memory_mb` for the affected method.
+
+## Custom Data Paths
+
+Dataset paths are configured in YAML:
+
+```yaml
+datasets:
+  DIRG:
+    tasks: [1, 2, 3, 4]
+    channels: 6
+    path: data/DIRG
+  MAFAULDA:
+    tasks: [5, 6, 7, 8]
+    channels: 8
+    path: data/MAFAULDA
+```
+
+Use absolute paths or paths relative to the repository root.
+
+## Compatibility Notes
+
+- `MCFD-ML` is the public method name.
+- `MEDG.py`, `MEDGNet.py`, and runtime keys such as `medg_ablation` remain for compatibility with existing scripts and checkpoints.
+- Old YAML configs using `MEDG` still work, but new experiment outputs should use `MCFD-ML`.

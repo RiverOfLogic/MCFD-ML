@@ -1,6 +1,7 @@
 import config
 from datetime import datetime
 from torch.utils.data import DataLoader
+from dataloader_utils import loader_kwargs
 from MEDGNet import FeatureEncoder
 from torch import nn
 import torch
@@ -9,6 +10,7 @@ from MEDG import build_global_domain_map
 import argparse
 import random
 import numpy as np
+from pathlib import Path
 from sklearn.metrics import f1_score
 import torch.nn.functional as F
 
@@ -84,6 +86,7 @@ if args.seed is not None:
 
 def log_msg(msg):
     log_messages.append(msg)
+    print(msg)
 
 class Discriminator(nn.Module):
     def __init__(self, input_dim: int, num_domains: int):
@@ -310,17 +313,17 @@ if __name__ == "__main__":
 
     src_loader = DataLoader(
         source_ds, batch_size=batch_size, shuffle=True,
-        num_workers=8, pin_memory=False, drop_last=True 
+        **loader_kwargs(drop_last=True)
     )
 
     tgt_loader = DataLoader(
         target_ds, batch_size=batch_size, shuffle=True, 
-        num_workers=8, pin_memory=False, drop_last=True
+        **loader_kwargs(drop_last=True)
     )
 
     val_loader = DataLoader(
         val_ds, batch_size=batch_size, shuffle=False,
-        num_workers=8, pin_memory=False, drop_last=False
+        **loader_kwargs(drop_last=False)
     )
 
     solver = CDAN_solver(
@@ -339,7 +342,7 @@ if __name__ == "__main__":
 
     test_loader = DataLoader(
         test_ds, batch_size=batch_size, shuffle=False,
-        num_workers=8, pin_memory=False, drop_last=False
+        **loader_kwargs(drop_last=False)
     )
     
     log_msg(f"训练完成 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -349,5 +352,5 @@ if __name__ == "__main__":
     log_msg(f"测试结果: 准确率={accuracy*100:.4f}% | Loss={avg_loss:.4f} | Macro F1={macro_f1:.4f} | Weighted F1={weighted_f1:.4f}")
     log_msg("=" * 80)
     
-    with open(config.LOGS_DIR / 'CDAN_training.log', 'a') as f:
+    with open(Path(config.LOGS_DIR) / 'CDAN_training.log', 'a') as f:
         f.write('\n'.join(log_messages) + '\n')

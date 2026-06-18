@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from dataloader_utils import loader_kwargs
 import config
 from MEDGNet import FeatureEncoder
 from MyNewDataset import NormalDataset, TargetDataset
@@ -11,6 +12,7 @@ from sklearn.metrics import f1_score
 import numpy as np
 from datetime import datetime
 import random
+from pathlib import Path
 
 import argparse
 
@@ -26,6 +28,7 @@ if args.seed is not None:
 
 def log_msg(msg):
     log_messages.append(msg)
+    print(msg)
 
 
 class LabelClassifier(nn.Module):
@@ -305,17 +308,17 @@ if __name__ == "__main__":
     # DataLoader（训练集shuffle=True）
     src_loader = DataLoader(
         source_ds, batch_size=config.MCD_batch_size, shuffle=True,
-        num_workers=8, pin_memory=False, drop_last=True 
+        **loader_kwargs(drop_last=True)
     )
 
     tgt_loader = DataLoader(
         target_ds, batch_size=config.MCD_batch_size, shuffle=True, 
-        num_workers=8, pin_memory=False, drop_last=True
+        **loader_kwargs(drop_last=True)
     )
 
     val_loader = DataLoader(
         val_ds, batch_size=config.MCD_batch_size, shuffle=False,
-        num_workers=8, pin_memory=False, drop_last=False
+        **loader_kwargs(drop_last=False)
     )
 
     # 初始化solver
@@ -339,7 +342,7 @@ if __name__ == "__main__":
     # 测试
     test_loader = DataLoader(
         test_ds, batch_size=config.MCD_batch_size, shuffle=False,
-        num_workers=8, pin_memory=False, drop_last=False
+        **loader_kwargs(drop_last=False)
     )
     
     log_msg(f"训练完成 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -349,5 +352,5 @@ if __name__ == "__main__":
     log_msg(f"测试结果: 准确率={accuracy*100:.4f}% | Loss={avg_loss:.4f} | Macro F1={macro_f1:.4f} | Weighted F1={weighted_f1:.4f}")
     log_msg("=" * 80)
     
-    with open(config.LOGS_DIR / 'MCD_training.log', 'a') as f:
+    with open(Path(config.LOGS_DIR) / 'MCD_training.log', 'a') as f:
         f.write('\n'.join(log_messages) + '\n')

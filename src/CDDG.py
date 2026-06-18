@@ -1,7 +1,9 @@
 import os
+from pathlib import Path
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from dataloader_utils import loader_kwargs
 from CDDGNet import CDDGNet
 import copy
 import numpy as np
@@ -139,8 +141,8 @@ def train(
     save_name: str = f"cddg_task{config.TASK}",
     batch_size: int = 64
 ):
-    source_loader = DataLoader(source_ds, batch_size=batch_size, shuffle=True, num_workers=0, drop_last=True)
-    val_loader = DataLoader(val_ds, batch_size=64, shuffle=False, num_workers=0)
+    source_loader = DataLoader(source_ds, batch_size=batch_size, shuffle=True, **loader_kwargs(drop_last=True))
+    val_loader = DataLoader(val_ds, batch_size=64, shuffle=False, **loader_kwargs(drop_last=False))
 
     model = CDDGNet(in_channels=config.channels, feat_dim=128, num_classes=num_classes).to(device)
     
@@ -224,7 +226,7 @@ def train(
                 'optimizer_state_dict': optimizer.state_dict(),
                 'best_acc': best_acc,
             }
-            save_path = config.MODELS_DIR / f"{save_name}_{args.seed}.pt"
+            save_path = Path(config.MODELS_DIR) / f"{save_name}_{args.seed}.pt"
             torch.save(state, save_path)
             log_msg(f" >>> Best model saved with Val Acc: {best_acc*100:.2f}%")
 
@@ -235,14 +237,14 @@ def train(
     return model
 
 def test(model, test_ds, device='cuda'):
-    test_loader = DataLoader(test_ds, batch_size=64, shuffle=False)
+    test_loader = DataLoader(test_ds, batch_size=64, shuffle=False, **loader_kwargs(drop_last=False))
     loss, acc, macro_f1, weighted_f1 = eval_cls(model, test_loader, device)
     
     log_msg(f"Training Complete - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     log_msg(f"Test Results: Accuracy={acc*100:.4f}% | Loss={loss:.4f} | Macro F1={macro_f1:.4f} | Weighted F1={weighted_f1:.4f}")
     log_msg("=" * 30)
     
-    with open(config.LOGS_DIR / 'CDDG_training.log', 'a', encoding='utf-8') as f:
+    with open(Path(config.LOGS_DIR) / 'CDDG_training.log', 'a', encoding='utf-8') as f:
         f.write('\n'.join(log_messages) + '\n')
 
 if __name__ == "__main__":
@@ -285,9 +287,9 @@ if __name__ == "__main__":
     log_msg(f"CDDG Training - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}, Task: {config.TASK}, seed: {args.seed}")
     
     # As per paper
-    lr = 0.0001
-    batch_size = 64
-    epochs = 100
+    lr = config.CDDG_lr
+    batch_size = config.CDDG_batch_size
+    epochs = config.CDDG_epochs
 
     model = train(
         source_ds=source_ds,

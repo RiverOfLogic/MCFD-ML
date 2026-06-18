@@ -1,17 +1,20 @@
 import os
+from pathlib import Path
 import torch
 from torch.func import functional_call
 import random
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from dataloader_utils import loader_kwargs
 from MEDGNet import Model
 import copy
 import numpy as np
 import torch.nn as nn
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from sklearn.manifold import TSNE
 from datetime import datetime
-from sklearn.metrics import f1_score
+from sklearn.metrics import confusion_matrix, f1_score
 from typing import List, Tuple
 import math
 from MyNewDataset import NormalDataset, TargetDataset
@@ -21,19 +24,9 @@ import config
 
 import argparse
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--seed', type=int, default=None, help='随机种子')
-args = parser.parse_args()
-
-# 如果指定了seed，就设置
-if args.seed is not None:
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
-    random.seed(args.seed)
-    print(f"Random seed set to: {args.seed}")
-
 def log_msg(msg):
     log_messages.append(msg)
+    print(msg)
 
 def named_params_dict(module):
     """获取模型所有参数的字典"""
@@ -51,7 +44,7 @@ def load_pretrained_encoder(model, pretrained_path, freeze=False):
     state_dict = torch.load(pretrained_path, map_location='cpu')
     
     # 直接加载到 F（FeatureEncoder）
-    missing, unexpected = model.F.load_state_dict(state_dict, strict=False)
+    missing, unexpected = model.encoder.load_state_dict(state_dict, strict=False)
     
     if missing:
         print(f"Missing keys: {missing}")
@@ -60,7 +53,7 @@ def load_pretrained_encoder(model, pretrained_path, freeze=False):
     
     # 冻结选项
     if freeze:
-        for param in model.F.parameters():
+        for param in model.encoder.parameters():
             param.requires_grad = False
         print("Encoder frozen!")
     
@@ -79,8 +72,8 @@ def meta_fwd_cls(params, model, x, y, alpha):
     
     # 使用 functional_call 进行前向计算
     # 注意：这里只取 y_logits
-    y_logits,_, _, _, _,_,_= functional_call(model, model_p, (x, alpha))
-    return F.cross_entropy(y_logits, y)
+    outputs = functional_call(model, model_p, (x, alpha))
+    return F.cross_entropy(outputs.task_logits, y)
 
 # ---------------------------
 # 全局域映射函数
@@ -188,28 +181,43 @@ def train(
     weight_rec = 0.1,
     device: str = "cuda",
     save_name: str = f"task{config.TASK}",
-    batch_size = 128
+    batch_size = 128,
+    seed = None,
+    lr_decay_enabled: bool = False,
+    lr_decay_step_size: int = 30,
+    lr_decay_gamma: float = 0.5,
+    medg_ablation: str = "none"
 ):
-    source_loader = DataLoader(source_ds, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
-    target_loader = DataLoader(target_ds, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True)
-    val_loader = DataLoader(val_ds, batch_size=64, shuffle=False)
+    source_loader = DataLoader(source_ds, batch_size=batch_size, shuffle=True, **loader_kwargs(drop_last=True))
+    target_loader = DataLoader(target_ds, batch_size=batch_size, shuffle=True, **loader_kwargs(drop_last=True))
+    val_loader = DataLoader(val_ds, batch_size=64, shuffle=False, **loader_kwargs(drop_last=False))
 
     num_domains = len(source_ds.domain_to_id)
     model = Model(in_channels=config.channels, feat_dim=128, num_classes=num_classes, num_domains=num_domains).to(device)
     #load_pretrained_encoder(model, "con_vis/weights/encoder_q_best.pth", freeze=False)
-    #print("FeatureExtractor parameters:", sum(p.numel() for p in model.F.parameters()))
+    #print("FeatureExtractor parameters:", sum(p.numel() for p in model.encoder.parameters()))
 
     optimizer = torch.optim.Adam([
-        {"params": model.F.parameters(),  "lr": lr},  # encoder 小一点
-        {"params": model.C.parameters(),  "lr": lr},  # 故障头
-        {"params": model.DC.parameters(), "lr": lr},  # 域特征头
-        {"params": model.D.parameters(),  "lr": lr},  # 域判别器
-        {"params": model.R.parameters(),  "lr": lr},  # 重构头
+        {"params": model.encoder.parameters(),  "lr": lr},  # encoder 小一点
+        {"params": model.task_head.parameters(),  "lr": lr},  # 故障头
+        {"params": model.domain_head.parameters(), "lr": lr},  # 域特征头
+        {"params": model.adversarial_domain_discriminator.parameters(),  "lr": lr},  # 域判别器
+        {"params": model.reconstructor.parameters(),  "lr": lr},  # 重构头
     ], weight_decay=1e-4)
+    scheduler = (
+        torch.optim.lr_scheduler.StepLR(
+            optimizer,
+            step_size=lr_decay_step_size,
+            gamma=lr_decay_gamma,
+        )
+        if lr_decay_enabled
+        else None
+    )
     criterion_coral = CoralLoss()
 
     steps_per_epoch = min(len(source_loader), len(target_loader))
     best_acc = 0.0 
+    best_state_dict = None
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -228,6 +236,54 @@ def train(
             # 计算 Alpha (对抗系数)
             p = (step + (epoch-1)*steps_per_epoch) / (epochs * steps_per_epoch)
             alpha = 2. / (1. + math.exp(-10 * p)) - 1
+            if medg_ablation == "no_meta_supervised":
+                source_outputs = model(x_s, alpha=alpha)
+                target_outputs = model(x_t, alpha=alpha)
+                source_adversarial_domain_logits = source_outputs.adversarial_domain_logits
+                source_domain_logits = source_outputs.domain_logits
+                source_shared_features = source_outputs.shared_features
+                source_task_features = source_outputs.task_features
+                source_domain_features = source_outputs.domain_features
+                source_reconstructed_features = source_outputs.reconstructed_features
+                target_adversarial_domain_logits = target_outputs.adversarial_domain_logits
+                target_domain_logits = target_outputs.domain_logits
+                target_shared_features = target_outputs.shared_features
+                target_task_features = target_outputs.task_features
+                target_domain_features = target_outputs.domain_features
+                target_reconstructed_features = target_outputs.reconstructed_features
+
+                zero_loss = source_outputs.task_logits.sum() * 0.0
+                loss_inner = F.cross_entropy(source_outputs.task_logits, y_s)
+                loss_outer = zero_loss
+                adversarial_domain_loss = 0.5 * (
+                    F.cross_entropy(source_adversarial_domain_logits, did_s)
+                    + F.cross_entropy(target_adversarial_domain_logits, did_t)
+                )
+                loss_coral = criterion_coral(source_task_features, target_task_features)
+                domain_supervision_loss = 0.5 * (
+                    F.cross_entropy(source_domain_logits, did_s)
+                    + F.cross_entropy(target_domain_logits, did_t)
+                )
+                disentanglement_loss = 0.5 * (
+                    hsic_loss1(source_task_features, source_domain_features)
+                    + hsic_loss1(target_task_features, target_domain_features)
+                )
+                reconstruction_loss = 0.5 * (
+                    F.mse_loss(source_reconstructed_features, source_shared_features.detach())
+                    + F.mse_loss(target_reconstructed_features, target_shared_features.detach())
+                )
+                total_loss = (
+                    loss_inner
+                    + weight_domain * adversarial_domain_loss
+                    + weight_coral * loss_coral
+                    + weight_domainacc * domain_supervision_loss
+                    + weight_HSIC * disentanglement_loss
+                    + weight_rec * reconstruction_loss
+                )
+                optimizer.zero_grad()
+                total_loss.backward()
+                optimizer.step()
+                continue
             # ===== 1. 构建元学习任务 (Meta-Task Construction) =====
             # 按域划分源域数据
             unique_domains = torch.unique(did_s).tolist()
@@ -271,25 +327,67 @@ def train(
 
             # ===== 4. 计算其他损失并总合 =====
             # 前向计算
-            y_logits, d_s_logits,dom_s, m_s,z_s,d_s,rec_s = model(x_s, alpha=alpha)
-            _, d_t_logits,dom_t, m_t,z_t,d_t,rec_t = model(x_t, alpha=alpha)
+            source_outputs = model(x_s, alpha=alpha)
+            target_outputs = model(x_t, alpha=alpha)
+            source_adversarial_domain_logits = source_outputs.adversarial_domain_logits
+            source_domain_logits = source_outputs.domain_logits
+            source_shared_features = source_outputs.shared_features
+            source_task_features = source_outputs.task_features
+            source_domain_features = source_outputs.domain_features
+            source_reconstructed_features = source_outputs.reconstructed_features
+            target_adversarial_domain_logits = target_outputs.adversarial_domain_logits
+            target_domain_logits = target_outputs.domain_logits
+            target_shared_features = target_outputs.shared_features
+            target_task_features = target_outputs.task_features
+            target_domain_features = target_outputs.domain_features
+            target_reconstructed_features = target_outputs.reconstructed_features
 
             # 1. 域对抗损失 (多域辨别)
-            loss_dom = 0.5 * (F.cross_entropy(d_s_logits, did_s) + F.cross_entropy(d_t_logits, did_t))
+            adversarial_domain_loss = 0.5 * (
+                F.cross_entropy(source_adversarial_domain_logits, did_s)
+                + F.cross_entropy(target_adversarial_domain_logits, did_t)
+            )
 
             # 2. CORAL 对齐损失 
-            loss_coral = criterion_coral(z_s, z_t)
+            if medg_ablation == "no_adv":
+                adversarial_domain_loss = source_outputs.task_logits.sum() * 0.0
+
+            loss_coral = criterion_coral(source_task_features, target_task_features)
+            if medg_ablation == "no_coral":
+                loss_coral = source_outputs.task_logits.sum() * 0.0
 
             # 3. 域分类准确率损失
-            dom_loss = 0.5*(F.cross_entropy(dom_s, did_s)+F.cross_entropy(dom_t, did_t))
+            domain_supervision_loss = 0.5 * (
+                F.cross_entropy(source_domain_logits, did_s)
+                + F.cross_entropy(target_domain_logits, did_t)
+            )
             # 4. 正交损失
-            orth_loss = 0.5*(hsic_loss1(z_s, d_s)+hsic_loss1(z_t, d_t))
+            if medg_ablation == "no_domain_supervision":
+                domain_supervision_loss = source_outputs.task_logits.sum() * 0.0
+            disentanglement_loss = 0.5 * (
+                hsic_loss1(source_task_features, source_domain_features)
+                + hsic_loss1(target_task_features, target_domain_features)
+            )
+            if medg_ablation == "no_HSIC":
+                disentanglement_loss = source_outputs.task_logits.sum() * 0.0
             # 5. 重构损失
-            rec_loss = 0.5*(F.mse_loss(rec_s, m_s.detach())+ F.mse_loss(rec_t, m_t.detach()))
+            reconstruction_loss = 0.5 * (
+                F.mse_loss(source_reconstructed_features, source_shared_features.detach())
+                + F.mse_loss(target_reconstructed_features, target_shared_features.detach())
+            )
 
             # 总损失
-            #total_loss = loss_inner + weight_outer*loss_outer + weight_domain * loss_dom + weight_coral * loss_coral + weight_domainacc * dom_loss + weight_HSIC*orth_loss+weight_rec*rec_loss
-            total_loss = loss_inner + weight_outer*loss_outer + weight_domain * loss_dom + weight_coral * loss_coral + weight_domainacc * dom_loss + weight_HSIC*orth_loss+weight_rec*rec_loss
+            if medg_ablation == "no_rec":
+                reconstruction_loss = source_outputs.task_logits.sum() * 0.0
+            total_loss = (
+                loss_inner
+                + weight_outer * loss_outer
+                + weight_domain * adversarial_domain_loss
+                + weight_coral * loss_coral
+                + weight_domainacc * domain_supervision_loss
+                + weight_HSIC * disentanglement_loss
+                + weight_rec * reconstruction_loss
+            )
 
 
             optimizer.zero_grad()
@@ -299,10 +397,13 @@ def train(
         # 验证逻辑 (保持不变)
         _, src_acc,src_dom = eval_cls(model,source_loader, device)
         _, tgt_acc,tgt_dom = eval_cls(model, val_loader, device)
+        current_lr = optimizer.param_groups[0]["lr"]
         print(f"Epoch {epoch:03d} | "
+            f"LR: {current_lr:.6g} | "
+            f"Ablation: {medg_ablation} | "
             f"Coral: {loss_coral.item():.4f} | "
-            f"HSIC LOSS: {orth_loss.item():.4f} | "
-            f"adv LOSS: {loss_dom.item():.4f} | "
+            f"HSIC LOSS: {disentanglement_loss.item():.4f} | "
+            f"adv LOSS: {adversarial_domain_loss.item():.4f} | "
             f"Src Acc: {src_acc*100:.2f}% | "
             f"Src Dom: {src_dom*100:.2f}% | "
             f"Tgt Acc: {tgt_acc*100:.2f}% | "
@@ -314,16 +415,19 @@ def train(
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict() if scheduler is not None else None,
         'best_acc': best_acc,
         'global_map': global_map,  # 非常重要：确保推理时的 Domain ID 一致
         }
-            save_path = config.MODELS_DIR / f"{save_name}_{args.seed}.pt"
+            save_path = Path(config.MODELS_DIR) / f"{save_name}_{seed}.pt"
             torch.save(state, save_path)
             print(f" >>> Best model with Tgt_Acc: {best_acc*100:.2f}%")
+        if scheduler is not None:
+            scheduler.step()
 
     if best_state_dict is not None:
         model.load_state_dict(best_state_dict)
-        print(f"\n✓ Loaded best model with Tgt_Acc: {best_acc*100:.2f}%")
+        print(f"\n[OK] Loaded best model with Tgt_Acc: {best_acc*100:.2f}%")
     else:
         print("Warning: No best model found during training!")
     
@@ -339,30 +443,34 @@ def eval_cls1(model, loader, device):
     all_preds = []
     all_labels_fat = []
 
-    for x, y, d in loader:
-        x, y, d = x.to(device), y.to(device), d.to(device)
-        logits, _, logits_dom, _, _, _, _ = model(x, alpha=0.0)
-        loss = F.cross_entropy(logits, y)
+    for x, y, domain_ids in loader:
+        x, y, domain_ids = x.to(device), y.to(device), domain_ids.to(device)
+        outputs = model(x, alpha=0.0)
+        task_logits = outputs.task_logits
+        domain_logits = outputs.domain_logits
+        loss = F.cross_entropy(task_logits, y)
 
         # 计算分类准确率
-        pred = logits.argmax(1)
+        pred = task_logits.argmax(1)
         all_preds.extend(pred.cpu().numpy())
         all_labels_fat.extend(y.cpu().numpy())
         correct += (pred == y).sum().item()
 
         # 计算域分类准确率
-        pred_dom = logits_dom.argmax(1)
-        correct_dom += (pred_dom == d).sum().item()
+        pred_dom = domain_logits.argmax(1)
+        correct_dom += (pred_dom == domain_ids).sum().item()
 
         total += y.size(0)
-        total_dom += d.size(0)
+        total_dom += domain_ids.size(0)
         loss_sum += loss.item() * y.size(0)
+        task_features = outputs.task_features
+        domain_features = outputs.domain_features
 
         # 保存特征 z 和 d 以及标签 y
-        all_z.append(logits.detach().cpu().numpy())  # 存储 z 特征
-        all_d.append(logits_dom.detach().cpu().numpy())  # 存储 d 特征
+        all_z.append(task_features.detach().cpu().numpy())  # 存储 z 特征
+        all_d.append(domain_features.detach().cpu().numpy())  # 存储 d 特征
         all_labels.append(y.detach().cpu().numpy())  # 存储标签 y
-        all_domains.append(d.detach().cpu().numpy())
+        all_domains.append(domain_ids.detach().cpu().numpy())
 
     # 合并所有特征
     all_z = np.concatenate(all_z, axis=0)
@@ -375,7 +483,7 @@ def eval_cls1(model, loader, device):
     else:
         macro_f1 = weighted_f1 = 0.0
 
-    return loss_sum / total, correct / total, correct_dom / total_dom, all_z, all_d, all_labels,all_domains,macro_f1,weighted_f1
+    return loss_sum / total, correct / total, correct_dom / total_dom, all_z, all_d, all_labels,all_domains,macro_f1,weighted_f1,np.asarray(all_labels_fat),np.asarray(all_preds)
 # ---------------------------
 # 评估函数
 # ---------------------------
@@ -385,31 +493,33 @@ def eval_cls(model,loader, device):
     total, correct = 0, 0
     total_dom,correct_dom = 0,0
     loss_sum = 0
-    for x, y, d in loader:
-        x, y ,d= x.to(device), y.to(device), d.to(device)
-        logits,_,logits_dom,_,_,_,_ = model(x, alpha=0.0)
-        loss = F.cross_entropy(logits, y)
+    for x, y, domain_ids in loader:
+        x, y, domain_ids = x.to(device), y.to(device), domain_ids.to(device)
+        outputs = model(x, alpha=0.0)
+        task_logits = outputs.task_logits
+        domain_logits = outputs.domain_logits
+        loss = F.cross_entropy(task_logits, y)
 
         # 计算分类准确率
-        pred = logits.argmax(1)
+        pred = task_logits.argmax(1)
         correct += (pred == y).sum().item()
 
         # 计算域分类准确率
-        pred_dom = logits_dom.argmax(1)
-        correct_dom += (pred_dom == d).sum().item()
+        pred_dom = domain_logits.argmax(1)
+        correct_dom += (pred_dom == domain_ids).sum().item()
 
         total += y.size(0)
-        total_dom += d.size(0)
+        total_dom += domain_ids.size(0)
         loss_sum += loss.item() * y.size(0)
     return loss_sum/total, correct/total, correct_dom/total_dom
 
-def test(model,target_ds, batch_size=64, device='cuda', save_path=f'test_results_{args.seed}.pdf'):
-    target_loader = DataLoader(target_ds, batch_size=batch_size, shuffle=False)
-    loss, acc, dom_acc, all_z, all_d, all_labels,all_domain_labels,macro_f1,weighted_f1 = eval_cls1(model, target_loader, device)
+def test(model,target_ds, batch_size=64, device='cuda', save_path='test_results.pdf', confusion_save_path=None, seed=None):
+    target_loader = DataLoader(target_ds, batch_size=batch_size, shuffle=False, **loader_kwargs(drop_last=False))
+    loss, acc, dom_acc, all_z, all_d, all_labels,all_domain_labels,macro_f1,weighted_f1,y_true,y_pred = eval_cls1(model, target_loader, device)
     log_msg(f"训练完成 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     log_msg(f"测试结果: 准确率={acc*100:.4f}% | Loss={loss:.4f} | Macro F1={macro_f1:.4f} | Weighted F1={weighted_f1:.4f}")
     log_msg("=" * 30)
-    with open(config.LOGS_DIR / 'MEDG_training.log', 'a') as f:
+    with open(Path(config.LOGS_DIR) / 'MCFD-ML_training.log', 'a') as f:
         f.write('\n'.join(log_messages) + '\n')
     # 输出结果
     print(f"Test Loss: {loss:.4f}, Target Domain Accuracy: {acc * 100:.2f}%")
@@ -417,48 +527,109 @@ def test(model,target_ds, batch_size=64, device='cuda', save_path=f'test_results
     # 使用 t-SNE 绘制 z 和 d 特征
     plot_tsne(all_z, all_d, labels=all_labels,domain_labels=all_domain_labels, save_path=save_path)
     print(f"t-SNE plots saved to {save_path}")
-def plot_tsne(z_features, d_features, labels,domain_labels, save_path="tsne_output.pdf"):
-    # 使用 t-SNE 将特征降维到 2D
+    if confusion_save_path is None:
+        root, ext = os.path.splitext(str(save_path))
+        confusion_save_path = f"{root}_confusion_matrix{ext or '.pdf'}"
+    plot_confusion_matrix(y_true, y_pred, num_classes=config.num_classes, save_path=confusion_save_path)
+    print(f"Confusion matrix saved to {confusion_save_path}")
+
+def plot_confusion_matrix(y_true, y_pred, num_classes, save_path="confusion_matrix.pdf", normalize=True):
+    labels = list(range(num_classes))
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
+    row_sum = cm.sum(axis=1, keepdims=True)
+    cm_to_plot = np.divide(cm, row_sum, out=np.zeros_like(cm, dtype=float), where=row_sum != 0)
+
+    fig, ax = plt.subplots(figsize=(7.5, 7))
+    norm = mcolors.PowerNorm(gamma=0.45, vmin=0.0, vmax=1.0)
+    ax.imshow(cm_to_plot, interpolation="nearest", cmap="YlGnBu", norm=norm)
+
+    ax.set(
+        xticks=np.arange(num_classes),
+        yticks=np.arange(num_classes),
+        xticklabels=labels,
+        yticklabels=labels,
+        xlabel="Predicted label",
+        ylabel="True label",
+        title="Normalized Confusion Matrix",
+    )
+    ax.title.set_fontsize(22)
+    ax.xaxis.label.set_size(20)
+    ax.yaxis.label.set_size(20)
+    ax.tick_params(axis="both", which="major", labelsize=20, length=0)
+    ax.tick_params(axis="both", which="minor", length=0)
+    ax.set_xticks(np.arange(-0.5, num_classes, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, num_classes, 1), minor=True)
+    ax.grid(which="minor", color="white", linestyle="-", linewidth=1.2)
+
+    threshold = 0.55
+    for i in range(num_classes):
+        for j in range(num_classes):
+            ax.text(
+                j,
+                i,
+                f"{cm_to_plot[i, j]:.2f}",
+                ha="center",
+                va="center",
+                color="white" if cm_to_plot[i, j] >= threshold else "#1f2933",
+                fontsize=19,
+            )
+
+    fig.tight_layout()
+    plt.savefig(save_path, format="pdf")
+    plt.close()
+
+def plot_tsne(z_features, d_features, labels, domain_labels, save_path="tsne_output.pdf"):
     tsne = TSNE(n_components=2, random_state=42)
     z_embedded = tsne.fit_transform(z_features)
     d_embedded = tsne.fit_transform(d_features)
+    labels = np.asarray(labels).reshape(-1).astype(int)
+    domain_labels = np.asarray(domain_labels).reshape(-1).astype(int)
+    plot_order = np.random.default_rng(42).permutation(labels.shape[0])
 
-    # 创建子图
-    fig, axs = plt.subplots(1, 3, figsize=(21, 7))
+    def categorical_scatter(ax, embedding, categories, title, legend_title):
+        unique_categories = np.unique(categories)
+        cmap = plt.get_cmap("tab10", len(unique_categories))
+        ordered_embedding = embedding[plot_order]
+        ordered_categories = categories[plot_order]
+        for color_idx, category in enumerate(unique_categories):
+            points = ordered_embedding[ordered_categories == category]
+            ax.scatter(
+                points[:, 0],
+                points[:, 1],
+                s=10,
+                alpha=0.82,
+                color=cmap(color_idx),
+                label=str(category),
+                edgecolors="none",
+            )
+        ax.set_title(title)
+        ax.set_xlabel("t-SNE Component 1")
+        ax.set_ylabel("t-SNE Component 2")
+        ax.legend(title=legend_title, markerscale=2, fontsize=9, title_fontsize=10, frameon=False)
 
-    # 绘制 z 特征与故障的 t-SNE 图
-    axs[0].scatter(z_embedded[:, 0], z_embedded[:, 1], c=labels, cmap='jet', s=10)
-    axs[0].set_title('t-SNE of z Features (with Faults)')
-    axs[0].set_xlabel('t-SNE Component 1')
-    axs[0].set_ylabel('t-SNE Component 2')
+    fig, axs = plt.subplots(1, 4, figsize=(28, 7))
+    categorical_scatter(axs[0], z_embedded, labels, "t-SNE of z Features (with Faults)", "Fault")
+    categorical_scatter(axs[1], z_embedded, domain_labels, "t-SNE of z Features (with Domains)", "Domain")
+    categorical_scatter(axs[2], d_embedded, labels, "t-SNE of d Features (with Faults)", "Fault")
+    categorical_scatter(axs[3], d_embedded, domain_labels, "t-SNE of d Features (with Domains)", "Domain")
 
-    # 绘制 z 特征与域的 t-SNE 图
-    axs[1].scatter(z_embedded[:, 0], z_embedded[:, 1], c=domain_labels, cmap='jet', s=10)
-    axs[1].set_title('t-SNE of z Features (with Domains)')
-    axs[1].set_xlabel('t-SNE Component 1')
-    axs[1].set_ylabel('t-SNE Component 2')
-
-    # 绘制 d 特征与故障的 t-SNE 图
-    axs[2].scatter(d_embedded[:, 0], d_embedded[:, 1], c=labels, cmap='jet', s=10)
-    axs[2].set_title('t-SNE of d Features (with Faults)')
-    axs[2].set_xlabel('t-SNE Component 1')
-    axs[2].set_ylabel('t-SNE Component 2')
-
-    # 绘制 d 特征与域的 t-SNE 图
-    axs[3].scatter(d_embedded[:, 0], d_embedded[:, 1], c=domain_labels, cmap='jet', s=10)
-    axs[3].set_title('t-SNE of d Features (with Domains)')
-    axs[3].set_xlabel('t-SNE Component 1')
-    axs[3].set_ylabel('t-SNE Component 2')
-    
-
-    # 保存为 PDF 文件
     plt.tight_layout()
-    plt.savefig(save_path, format='pdf')
+    plt.savefig(save_path, format="pdf")
     plt.close()
 # ---------------------------
 # Main (执行入口)
 # ---------------------------
 if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--seed', type=int, default=43, help='Random seed')
+    args = parser.parse_args()
+
+    if args.seed is not None:
+        torch.manual_seed(args.seed)
+        np.random.seed(args.seed)
+        random.seed(args.seed)
+        print(f"Random seed set to: {args.seed}")
 
     log_messages = []
 
@@ -513,10 +684,15 @@ if __name__ == "__main__":
     log_msg("." * 30)
     log_msg(f"参数: num_classes={config.num_classes}, batch_size={config.batch_size}, lr={config.lr}, epochs={config.epochs}")
 
+    medg_method_name = getattr(config, "medg_method_name", "MCFD-ML")
+    medg_ablation = getattr(config, "medg_ablation", "none")
+    output_prefix = f"task{config.TASK}" if medg_method_name == "MEDG" else f"{medg_method_name}_task{config.TASK}"
+    log_msg(f"MCFD-ML ablation: {medg_ablation}")
+
     model = train(
-        source_ds=source_ds, 
-        target_ds=target_ds, 
-        val_ds=val_ds, 
+        source_ds=source_ds,
+        target_ds=target_ds,
+        val_ds=val_ds,
         num_classes=config.num_classes,
         epochs = config.epochs,
         weight_coral=config.weight_coral,
@@ -525,9 +701,20 @@ if __name__ == "__main__":
         weight_outer = config.weight_outer,
         weight_HSIC = config.weight_HSIC,
         weight_rec = config.weight_rec,
-        save_name = "task4",
+        save_name = output_prefix,
         batch_size = config.batch_size,
-        lr=config.lr         
+        lr=config.lr,
+        seed=args.seed,
+        lr_decay_enabled=config.lr_decay_enabled,
+        lr_decay_step_size=config.lr_decay_step_size,
+        lr_decay_gamma=config.lr_decay_gamma,
+        medg_ablation=medg_ablation
     )
-    test(model,test_ds,64)
+    test(
+        model,
+        test_ds,
+        64,
+        save_path=Path(config.FIGURES_DIR) / f"test_results_{output_prefix}_{args.seed}.pdf",
+        seed=args.seed,
+    )
 
